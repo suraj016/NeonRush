@@ -1,0 +1,22 @@
+:root {
+  --bg-primary: #102923;
+  --bg-secondary: #123b32;
+  --surface: #16332d;
+  --surface-2: #1b3535;
+  --accent-cyan: #00f5a0;
+  --accent-blue: #18b8c9;
+  --accent-violet: #00c987;
+  --accent-magenta: #a6ff4d;
+  --accent-warning: #ffd166;
+  --text-primary: #e9fff6;
+  --text-secondary: #a6c5b8;
+  --danger: #ff5364;
+  --ok: #00c987;
+  --shadow: 0 18px 50px rgba(8, 24, 20, 0.5);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --font-display: 'Orbitron', 'Segoe UI', sans-serif;
+  --font-ui: 'Rajdhani', 'Segoe UI', sans-serif;
+  --pad: clamp(16px, 3vw, 32px);
+  --panel-border: #2c5b4b;
+}
