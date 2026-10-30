@@ -75,7 +75,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ screen: prev === get().screen ? Screens.Menu : prev })
   },
 
-  setHud: (hud) => set({ hud }),
   setWebglError: (webglError) => set({ webglError }),
 
   updateSettings: (patch) => {
@@ -87,7 +86,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   applyEnergy: (total) => {
     set({ profile: { ...get().profile, totalEnergy: total } })
-    write(snapshot(get()))
+  },
+
+  setHud: (hud) => {
+    const prev = get().hud
+    if (
+      prev.score === hud.score &&
+      prev.distance === hud.distance &&
+      prev.energy === hud.energy &&
+      prev.tier === hud.tier &&
+      prev.readyLabel === hud.readyLabel &&
+      prev.multiplier === hud.multiplier &&
+      Math.floor(prev.speed) === Math.floor(hud.speed) &&
+      prev.powerups.length === hud.powerups.length
+    ) {
+      return
+    }
+    set({ hud })
   },
 
   applyMissions: (missions) => {

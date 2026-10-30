@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { LANES } from './config.ts'
-import { obstacleAABB } from './collision.ts'
+import { writeObstacleAABB } from './collision.ts'
 import type { MaterialSet } from './materials.ts'
 import type { AABB, Lane, ObstacleType, PickupType } from './types.ts'
 import type { TrackSegment } from './track.ts'
@@ -65,8 +65,10 @@ export class Spawner {
   pickups: SpawnedPickup[] = []
   private pools: Pools
   private geos!: PropGeos
+  private materials!: MaterialSet
   private lastDecision = 40
   private spawnedDistance = 0
+  private scratchBox: AABB = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }
 
   constructor(materials: MaterialSet) {
     this.pools = {
@@ -81,6 +83,7 @@ export class Spawner {
       magnet: [],
       multiplier: [],
     }
+    this.materials = materials
     this.buildPools(materials)
   }
 
@@ -154,34 +157,39 @@ export class Spawner {
 
   worldBox(hazard: SpawnedHazard): AABB {
     const worldZ = hazard.segment.group.position.z + hazard.localZ
-    const x = hazard.mesh.position.x
-    return obstacleAABB(hazard.type, x, worldZ, hazard.type === 'gap' ? { length: 2.6, width: 1.05 } : undefined)
+    return writeObstacleAABB(
+      this.scratchBox,
+      hazard.type,
+      hazard.mesh.position.x,
+      worldZ,
+      hazard.type === 'gap' ? { length: 2.6, width: 1.05 } : undefined,
+    )
   }
 
   pickupBox(pickup: SpawnedPickup): AABB {
     const worldZ = pickup.segment.group.position.z + pickup.localZ
-    return {
-      minX: pickup.mesh.position.x - 0.4,
-      maxX: pickup.mesh.position.x + 0.4,
-      minY: 0.3,
-      maxY: 1.6,
-      minZ: worldZ - 0.4,
-      maxZ: worldZ + 0.4,
-    }
+    const box = this.scratchBox
+    box.minX = pickup.mesh.position.x - 0.4
+    box.maxX = pickup.mesh.position.x + 0.4
+    box.minY = 0.3
+    box.maxY = 1.6
+    box.minZ = worldZ - 0.4
+    box.maxZ = worldZ + 0.4
+    return box
   }
 
   killHazard(hazard: SpawnedHazard): void {
     hazard.alive = false
     hazard.mesh.visible = false
     this.release(hazard.type, hazard.mesh as THREE.Group)
-    this.hazards = this.hazards.filter((item) => item !== hazard)
+    this.removeItem(this.hazards, hazard)
   }
 
   collect(pickup: SpawnedPickup): void {
     pickup.alive = false
     pickup.mesh.visible = false
     this.release(pickup.type, pickup.mesh as THREE.Group)
-    this.pickups = this.pickups.filter((item) => item !== pickup)
+    this.removeItem(this.pickups, pickup)
   }
 
   attract(pickup: SpawnedPickup, targetX: number, dt: number): void {
@@ -191,16 +199,20 @@ export class Spawner {
   }
 
   reclaimSegment(segment: TrackSegment): void {
-    this.hazards = this.hazards.filter((item) => {
-      if (item.segment !== segment) return true
+    for (let i = this.hazards.length - 1; i >= 0; i -= 1) {
+      const item = this.hazards[i]
+      if (item.segment !== segment) continue
       this.release(item.type, item.mesh as THREE.Group)
-      return false
-    })
-    this.pickups = this.pickups.filter((item) => {
-      if (item.segment !== segment) return true
+      this.hazards[i] = this.hazards[this.hazards.length - 1]
+      this.hazards.pop()
+    }
+    for (let i = this.pickups.length - 1; i >= 0; i -= 1) {
+      const item = this.pickups[i]
+      if (item.segment !== segment) continue
       this.release(item.type, item.mesh as THREE.Group)
-      return false
-    })
+      this.pickups[i] = this.pickups[this.pickups.length - 1]
+      this.pickups.pop()
+    }
   }
 
   dispose(): void {
@@ -316,11 +328,26 @@ export class Spawner {
     })
   }
 
+  private removeItem<T>(list: T[], item: T): void {
+    const index = list.indexOf(item)
+    if (index < 0) return
+    list[index] = list[list.length - 1]
+    list.pop()
+  }
+
   private acquire(type: ObstacleType | PickupType): THREE.Group {
-    const pool = this.pools[type]
-    const item = pool.pop()
+    const item = this.pools[type].pop()
     if (item) return item
-    return this.pools.orb.pop() ?? new THREE.Group()
+    if (type === 'orb') return makeOrb(this.geos, this.materials)
+    if (type === 'barrier') return makeBarrier(this.geos, this.materials)
+    if (type === 'low') return makeLow(this.geos, this.materials)
+    if (type === 'overhead') return makeOverhead(this.geos, this.materials)
+    if (type === 'moving') return makeMoving(this.geos, this.materials)
+    if (type === 'spinner') return makeSpinner(this.geos, this.materials)
+    if (type === 'gap') return makeGap(this.geos, this.materials)
+    if (type === 'shield') return makeShield(this.geos, this.materials)
+    if (type === 'magnet') return makeMagnet(this.geos, this.materials)
+    return makeMultiplier(this.geos, this.materials)
   }
 
   private release(type: ObstacleType | PickupType, mesh: THREE.Group): void {
@@ -354,7 +381,7 @@ export class Spawner {
     fill('moving', 8, () => makeMoving(this.geos, materials))
     fill('spinner', 10, () => makeSpinner(this.geos, materials))
     fill('gap', 8, () => makeGap(this.geos, materials))
-    fill('orb', 40, () => makeOrb(this.geos, materials))
+    fill('orb', 72, () => makeOrb(this.geos, materials))
     fill('shield', 6, () => makeShield(this.geos, materials))
     fill('magnet', 6, () => makeMagnet(this.geos, materials))
     fill('multiplier', 6, () => makeMultiplier(this.geos, materials))

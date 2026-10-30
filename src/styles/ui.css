@@ -6,6 +6,8 @@
   padding: var(--pad);
   padding-top: max(var(--pad), env(safe-area-inset-top));
   padding-bottom: max(var(--pad), env(safe-area-inset-bottom));
+  padding-left: max(var(--pad), env(safe-area-inset-left));
+  padding-right: max(var(--pad), env(safe-area-inset-right));
 }
 
 .screen-center {
@@ -384,5 +386,75 @@
 
   .hud-cluster {
     max-width: calc(100% - 56px);
+  }
+
+  .chip {
+    min-width: 58px;
+    padding: 5px 7px;
+  }
+
+  .chip strong {
+    font-size: 15px;
+  }
+
+  .title {
+    font-size: clamp(22px, 8vw, 34px);
+  }
+
+  .scroll {
+    max-height: min(62vh, 560px);
+  }
+}
+
+@media (max-width: 380px) {
+  .hud {
+    padding: 10px;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+
+  .chip span {
+    font-size: 9px;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .hud {
+    padding: 8px 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .chip {
+    min-width: 52px;
+    padding: 4px 6px;
+  }
+
+  .chip strong {
+    font-size: 14px;
+  }
+
+  .ready-banner {
+    top: 38%;
+    font-size: 18px;
+  }
+
+  .panel {
+    padding: 14px;
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+  }
+
+  .brand img {
+    width: min(280px, 50vw);
+  }
+}
+
+@media (min-width: 1100px) {
+  .panel {
+    width: min(560px, 100%);
+  }
+
+  .hud-cluster {
+    gap: 10px;
   }
 }

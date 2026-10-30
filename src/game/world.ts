@@ -45,6 +45,9 @@ export class World {
   private floorR: THREE.Mesh
   private rails: THREE.Mesh[] = []
   private holoPulse = 0
+  private themeTarget = new THREE.Color()
+  private themeAccent = new THREE.Color()
+  private holoFrame = 0
 
   constructor(scene: THREE.Scene, materials: MaterialSet, quality: Quality) {
     this.scene = scene
@@ -190,7 +193,7 @@ export class World {
       this.root.add(board)
     }
 
-    const particleCount = quality === 'low' ? 0 : quality === 'high' ? 260 : 140
+    const particleCount = quality === 'low' ? 0 : quality === 'high' ? 80 : 36
     const positions = new Float32Array(Math.max(1, particleCount) * 3)
     for (let i = 0; i < particleCount; i += 1) {
       positions[i * 3] = (Math.random() - 0.5) * 28
@@ -230,6 +233,7 @@ export class World {
     if (targetTheme !== this.theme) this.theme = targetTheme
     this.applyTheme(this.theme, dt)
     this.holoPulse += dt
+    this.holoFrame += 1
 
     for (const layer of this.layers) {
       const moved = distanceMoved * layer.parallax
@@ -269,13 +273,15 @@ export class World {
       if (rail.position.z > 20) rail.position.z -= 80
     }
 
+    const pulseHolo = this.holoFrame % 3 === 0 && !this.reduced
     for (let i = 0; i < this.holos.length; i += 1) {
       const sign = this.holos[i]
       sign.position.z += distanceMoved
       if (sign.position.z > 18) sign.position.z -= 8 * 24
-      const mat = sign.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.72 + Math.sin(this.holoPulse * 2.2 + i) * 0.18
-      if (mat.map) mat.map.offset.y = (this.time * 0.04 + i * 0.1) % 1
+      if (pulseHolo) {
+        const mat = sign.material as THREE.MeshBasicMaterial
+        mat.opacity = 0.72 + Math.sin(this.holoPulse * 2.2 + i) * 0.18
+      }
     }
 
     this.sky.rotation.y += dt * 0.01
@@ -321,13 +327,13 @@ export class World {
   private applyTheme(index: number, dt: number): void {
     const theme = THEMES[index]
     const current = this.scene.background as THREE.Color
-    const target = new THREE.Color(index === 0 ? 0x0e2420 : theme.fog)
-    current.lerp(target, 1 - Math.exp(-dt * 0.9))
+    this.themeTarget.setHex(index === 0 ? 0x0e2420 : theme.fog)
+    current.lerp(this.themeTarget, 1 - Math.exp(-dt * 0.9))
     this.fog.color.copy(current)
     this.fog.near = 55
     this.fog.far = damp(this.fog.far, index === 1 ? 150 : 210, 1.2, dt)
-    const accent = new THREE.Color(theme.accent)
-    ;(this.arches.material as THREE.MeshBasicMaterial).color.lerp(accent, 0.08)
+    this.themeAccent.setHex(theme.accent)
+    ;(this.arches.material as THREE.MeshBasicMaterial).color.lerp(this.themeAccent, 0.08)
   }
 
   dispose(): void {

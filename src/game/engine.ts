@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { POWERUP } from './config.ts'
 import { AudioManager } from './audio.ts'
-import { playerAABB, isFatalHit, collectOverlap } from './collision.ts'
+import { writePlayerAABB, isFatalHit, collectOverlap } from './collision.ts'
 import { evaluateDifficulty } from './difficulty.ts'
 import { InputManager, type GameAction } from './input.ts'
 import { createMaterials, type MaterialSet } from './materials.ts'
@@ -72,7 +72,13 @@ export class GameEngine {
   private envMap: THREE.Texture | null = null
   private frames = 0
   private fpsAcc = 0
-  private fps = 0
+  private fps = 60
+  private fpsLow = 0
+  private autoDropped = false
+  private mobile = false
+  private pausedDrawn = false
+  private playerBox = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }
+  private lastHud = { score: -1, distance: -1, energy: -1, speed: -1, ready: '' as string | null }
 
   constructor(canvas: HTMLCanvasElement, settings: Settings, skin: SkinId, hooks: EngineHooks) {
     this.canvas = canvas
@@ -80,10 +86,12 @@ export class GameEngine {
     this.skin = skin
     this.hooks = hooks
 
+    this.mobile = this.detectMobile()
     const renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: settings.quality !== 'low',
+      antialias: settings.quality === 'high' && !this.mobile,
       alpha: false,
+      stencil: false,
       powerPreference: 'high-performance',
     })
     renderer.setPixelRatio(this.pixelRatio(settings.quality))
@@ -106,8 +114,9 @@ export class GameEngine {
     this.player = new Player(this.materials)
     this.player.applySkin(skin)
     this.track = new TrackManager(this.materials)
-    this.world = new World(this.scene, this.materials, settings.quality)
-    this.world.setQuality(settings.quality, settings.reducedMotion)
+    const worldQuality = this.mobile && settings.quality === 'high' ? 'medium' : settings.quality
+    this.world = new World(this.scene, this.materials, worldQuality)
+    this.world.setQuality(worldQuality, settings.reducedMotion)
     this.spawner = new Spawner(this.materials)
     this.fx = new PickupFx()
     this.scene.add(this.fx.root)
@@ -120,9 +129,10 @@ export class GameEngine {
 
     this.scene.add(this.track.root, this.world.root, this.player.root)
     this.addLights()
-    this.setupComposer(settings.quality !== 'low' && !settings.reducedMotion)
+    this.setupComposer(this.shouldBloom())
     this.resize()
     window.addEventListener('resize', this.onResize)
+    window.visualViewport?.addEventListener('resize', this.onResize)
     document.addEventListener('visibilitychange', this.onVisibility)
     this.setState(EngineStates.MainMenu)
     this.seedMenu()
@@ -145,7 +155,9 @@ export class GameEngine {
     if (this.raf) cancelAnimationFrame(this.raf)
     this.raf = 0
     window.removeEventListener('resize', this.onResize)
+    window.visualViewport?.removeEventListener('resize', this.onResize)
     document.removeEventListener('visibilitychange', this.onVisibility)
+    this.disposeComposer()
     this.input.dispose()
     this.audio.dispose()
     this.fx.dispose()
@@ -156,8 +168,6 @@ export class GameEngine {
     for (const light of this.lights) {
       this.scene.remove(light)
     }
-    this.composer = null
-    this.bloomPass = null
     this.envMap?.dispose()
     this.pmrem?.dispose()
     this.renderer.dispose()
@@ -174,7 +184,7 @@ export class GameEngine {
     this.audio.applySettings(settings)
     this.world.setQuality(settings.quality, settings.reducedMotion)
     this.renderer.setPixelRatio(this.pixelRatio(settings.quality))
-    this.setupComposer(settings.quality !== 'low' && !settings.reducedMotion)
+    this.setupComposer(this.shouldBloom())
     this.resize()
   }
 
@@ -250,9 +260,13 @@ export class GameEngine {
     }
 
     if (this.state === EngineStates.Paused) {
-      this.render()
+      if (!this.pausedDrawn) {
+        this.render()
+        this.pausedDrawn = true
+      }
       return
     }
+    this.pausedDrawn = false
 
     if (this.state === EngineStates.GameOver) {
       this.player.update(dt, 0, true)
@@ -301,7 +315,7 @@ export class GameEngine {
     }
 
     this.spawner.update(dt, true)
-    if (!this.settings.reducedMotion) this.fx.update(dt)
+    this.fx.update(dt)
     this.track.update(dt)
     this.world.update(dt, moved, this.distance, true)
     this.resolvePickups(dt)
@@ -309,7 +323,7 @@ export class GameEngine {
     this.shake = damp(this.shake, 0, 8, dt)
     this.updateCamera(dt, false)
     this.hudAcc += dt
-    if (this.hudAcc >= 0.12) {
+    if (this.hudAcc >= 0.2) {
       this.hudAcc = 0
       this.pushHud(null)
     }
@@ -317,9 +331,11 @@ export class GameEngine {
   }
 
   private resolvePickups(dt: number): void {
-    const box = playerAABB(this.player.x, this.player.y, this.player.sliding)
+    const box = writePlayerAABB(this.playerBox, this.player.x, this.player.y, this.player.sliding)
     const magnet = this.powerups.magnet > 0
-    for (const pickup of [...this.spawner.pickups]) {
+    const pickups = this.spawner.pickups
+    for (let i = pickups.length - 1; i >= 0; i -= 1) {
+      const pickup = pickups[i]
       if (!pickup.alive) continue
       const worldZ = pickup.segment.group.position.z + pickup.localZ
       if (magnet && Math.abs(worldZ) < POWERUP.magnetRadius) {
@@ -354,8 +370,10 @@ export class GameEngine {
 
   private resolveHazards(): void {
     if (this.player.invuln > 0 || this.player.crashed) return
-    const box = playerAABB(this.player.x, this.player.y, this.player.sliding)
-    for (const hazard of [...this.spawner.hazards]) {
+    const box = writePlayerAABB(this.playerBox, this.player.x, this.player.y, this.player.sliding)
+    const hazards = this.spawner.hazards
+    for (let i = 0; i < hazards.length; i += 1) {
+      const hazard = hazards[i]
       if (!hazard.alive) continue
       const hz = this.spawner.worldBox(hazard)
       if (!isFatalHit(hazard.type, box, hz)) continue
@@ -459,7 +477,7 @@ export class GameEngine {
     this.camY = damp(this.camY, 3.35 + this.player.y * 0.18, 6, dt)
     const sx = this.shake ? (Math.random() - 0.5) * this.shake : 0
     const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0
-    this.camera.position.set(this.camX + sx, this.camY + sy, 8.15)
+    this.camera.position.set(this.camX + sx, this.camY + sy, this.camera.aspect < 0.75 ? 9.1 : 8.15)
     this.camera.lookAt(this.player.x * 0.32, 1.55 + this.player.y * 0.1, -12)
   }
 
@@ -479,6 +497,20 @@ export class GameEngine {
       powerups,
       readyLabel: ready,
     }
+    if (
+      this.lastHud.score === hud.score &&
+      this.lastHud.distance === hud.distance &&
+      this.lastHud.energy === hud.energy &&
+      this.lastHud.speed === Math.floor(hud.speed) &&
+      this.lastHud.ready === hud.readyLabel
+    ) {
+      return
+    }
+    this.lastHud.score = hud.score
+    this.lastHud.distance = hud.distance
+    this.lastHud.energy = hud.energy
+    this.lastHud.speed = Math.floor(hud.speed)
+    this.lastHud.ready = hud.readyLabel
     this.hooks.onHud(hud)
   }
 
@@ -500,16 +532,24 @@ export class GameEngine {
     this.lights.push(ambient, hemi, key, fill, rim)
   }
 
+  private shouldBloom(): boolean {
+    return this.settings.quality === 'high' && !this.settings.reducedMotion && !this.mobile && !this.autoDropped
+  }
+
+  private disposeComposer(): void {
+    this.composer?.dispose()
+    this.composer = null
+    this.bloomPass = null
+  }
+
   private setupComposer(enabled: boolean): void {
-    if (!enabled) {
-      this.composer = null
-      this.bloomPass = null
-      return
-    }
-    const size = new THREE.Vector2(this.canvas.clientWidth || 1280, this.canvas.clientHeight || 720)
+    this.disposeComposer()
+    if (!enabled) return
+    const width = Math.max(1, this.canvas.clientWidth || 1280)
+    const height = Math.max(1, this.canvas.clientHeight || 720)
     const composer = new EffectComposer(this.renderer)
     composer.addPass(new RenderPass(this.scene, this.camera))
-    const bloom = new UnrealBloomPass(size, 0.16, 0.26, 0.9)
+    const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.14, 0.22, 0.92)
     composer.addPass(bloom)
     composer.addPass(new OutputPass())
     this.composer = composer
@@ -523,6 +563,14 @@ export class GameEngine {
     this.fps = this.frames / this.fpsAcc
     this.frames = 0
     this.fpsAcc = 0
+    if (this.fps < 44) this.fpsLow += 1
+    else this.fpsLow = 0
+    if (this.fpsLow >= 4 && !this.autoDropped) {
+      this.autoDropped = true
+      this.disposeComposer()
+      this.renderer.setPixelRatio(Math.min(this.pixelRatio('low'), 1.1))
+      this.world.setQuality('low', this.settings.reducedMotion)
+    }
     ;(window as unknown as { __neonPerf?: { fps: number } }).__neonPerf = { fps: Math.round(this.fps) }
   }
 
@@ -532,12 +580,14 @@ export class GameEngine {
   }
 
   private resize(): void {
-    const width = this.canvas.clientWidth || window.innerWidth
-    const height = this.canvas.clientHeight || window.innerHeight
+    const view = window.visualViewport
+    const width = Math.max(1, this.canvas.clientWidth || view?.width || window.innerWidth)
+    const height = Math.max(1, this.canvas.clientHeight || view?.height || window.innerHeight)
     this.renderer.setSize(width, height, false)
     this.composer?.setSize(width, height)
     this.bloomPass?.resolution.set(width, height)
-    this.camera.aspect = width / Math.max(1, height)
+    this.camera.aspect = width / height
+    this.camera.fov = this.camera.aspect < 0.7 ? 68 : this.camera.aspect < 1 ? 62 : 56
     this.camera.updateProjectionMatrix()
   }
 
@@ -550,7 +600,14 @@ export class GameEngine {
   }
 
   private pixelRatio(quality: Quality): number {
-    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.25 : 2
+    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.15 : this.mobile ? 1.25 : 1.5
     return Math.min(window.devicePixelRatio || 1, cap)
+  }
+
+  private detectMobile(): boolean {
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    const narrow = window.innerWidth < 820
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+    return coarse || narrow || (memory !== undefined && memory <= 4)
   }
 }

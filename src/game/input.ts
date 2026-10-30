@@ -33,6 +33,7 @@ export class InputManager {
     element.addEventListener('pointerup', this.onPointerUp)
     element.addEventListener('pointercancel', this.onPointerCancel)
     element.addEventListener('contextmenu', this.onContext)
+    element.addEventListener('touchmove', this.onTouchMove, { passive: false })
   }
 
   dispose(): void {
@@ -43,6 +44,7 @@ export class InputManager {
     this.element.removeEventListener('pointerup', this.onPointerUp)
     this.element.removeEventListener('pointercancel', this.onPointerCancel)
     this.element.removeEventListener('contextmenu', this.onContext)
+    this.element.removeEventListener('touchmove', this.onTouchMove)
     this.pointers.clear()
   }
 
@@ -81,6 +83,10 @@ export class InputManager {
   }
 
   private onContext = (event: Event): void => {
+    if (this.handlers.isGameplayActive()) event.preventDefault()
+  }
+
+  private onTouchMove = (event: TouchEvent): void => {
     if (this.handlers.isGameplayActive()) event.preventDefault()
   }
 }

@@ -41,6 +41,24 @@ export function overlap(a: AABB, b: AABB): boolean {
   )
 }
 
+export function writeBox(
+  out: AABB,
+  x: number,
+  y: number,
+  z: number,
+  hx: number,
+  hy: number,
+  hz: number,
+): AABB {
+  out.minX = x - hx
+  out.maxX = x + hx
+  out.minY = y
+  out.maxY = y + hy
+  out.minZ = z - hz
+  out.maxZ = z + hz
+  return out
+}
+
 export function makeBox(
   x: number,
   y: number,
@@ -49,14 +67,7 @@ export function makeBox(
   hy: number,
   hz: number,
 ): AABB {
-  return {
-    minX: x - hx,
-    maxX: x + hx,
-    minY: y,
-    maxY: y + hy,
-    minZ: z - hz,
-    maxZ: z + hz,
-  }
+  return writeBox({ minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }, x, y, z, hx, hy, hz)
 }
 
 export function easeInOut(t: number): number {

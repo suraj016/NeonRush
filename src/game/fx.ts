@@ -71,11 +71,16 @@ export class PickupFx {
       '+50': this.makeLabel('+50', '#FFD166'),
       PWR: this.makeLabel('PWR', '#18B8C9'),
     }
-    for (let i = 0; i < 10; i += 1) this.pool.push(this.createBurst())
+    for (let i = 0; i < 8; i += 1) this.pool.push(this.createBurst())
   }
 
   spawn(x: number, y: number, z: number, label: string): void {
-    const burst = this.pool.pop() ?? this.createBurst()
+    let burst = this.pool.pop()
+    if (!burst) {
+      burst = this.bursts.shift()
+      if (!burst) return
+      burst.group.removeFromParent()
+    }
     burst.group.position.set(x, y, z)
     burst.group.visible = true
     burst.group.scale.set(1, 1, 1)
@@ -99,6 +104,7 @@ export class PickupFx {
   }
 
   update(dt: number): void {
+    if (this.bursts.length === 0) return
     for (let i = this.bursts.length - 1; i >= 0; i -= 1) {
       const burst = this.bursts[i]
       burst.age += dt
@@ -164,7 +170,7 @@ export class PickupFx {
     group.add(ring)
     const sparks: THREE.Mesh[] = []
     const dirs: THREE.Vector3[] = []
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       const spark = new THREE.Mesh(this.sparkGeo, i % 2 === 0 ? this.mintMat : this.limeMat)
       sparks.push(spark)
       dirs.push(new THREE.Vector3())
