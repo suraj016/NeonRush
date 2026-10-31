@@ -131,7 +131,7 @@ export class GameEngine {
     this.player = new Player(this.materials)
     this.player.applySkin(skin)
     this.track = new TrackManager(this.materials)
-    const worldQuality = this.mobile && settings.quality === 'high' ? 'medium' : settings.quality
+    const worldQuality = this.worldQuality(settings.quality)
     this.world = new World(this.scene, this.materials, worldQuality)
     this.world.setQuality(worldQuality, settings.reducedMotion)
     this.spawner = new Spawner(this.materials)
@@ -200,7 +200,7 @@ export class GameEngine {
   applySettings(settings: Settings): void {
     this.settings = settings
     this.audio.applySettings(settings)
-    this.world.setQuality(settings.quality, settings.reducedMotion)
+    this.world.setQuality(this.worldQuality(settings.quality), settings.reducedMotion)
     this.renderer.setPixelRatio(this.pixelRatio(settings.quality))
     this.setupComposer(this.shouldBloom())
     this.resize()
@@ -391,7 +391,7 @@ export class GameEngine {
   }
 
   private spawnCollectFx(pickup: SpawnedPickup, label: string): void {
-    if (this.settings.reducedMotion) return
+    if (this.settings.reducedMotion || (this.mobile && this.autoDropped)) return
     const x = pickup.mesh.position.x
     const y = pickup.mesh.position.y
     const z = pickup.segment.group.position.z + pickup.mesh.position.z
@@ -412,7 +412,7 @@ export class GameEngine {
         this.player.hitShield()
         this.spawner.killHazard(hazard)
         this.audio.play('shield')
-        if (this.settings.cameraShake && !this.settings.reducedMotion) this.shake = 0.28
+        if (this.canShake()) this.shake = 0.28
         return
       }
       this.crash()
@@ -423,7 +423,7 @@ export class GameEngine {
   private crash(): void {
     this.player.crashed = true
     this.audio.play('crash')
-    if (this.settings.cameraShake && !this.settings.reducedMotion) this.shake = 0.55
+    if (this.canShake()) this.shake = 0.55
     this.overTimer = 0.55
     this.setState(EngineStates.GameOver)
   }
@@ -513,8 +513,9 @@ export class GameEngine {
       this.camera.lookAt(this.player.x * 0.35, 2.2, -14)
       return
     }
-    this.camX = damp(this.camX, this.player.x * 0.55, 6, dt)
-    this.camY = damp(this.camY, 3.35 + this.player.y * 0.18, 6, dt)
+    const follow = this.mobile ? 8 : 6
+    this.camX = damp(this.camX, this.player.x * 0.55, follow, dt)
+    this.camY = damp(this.camY, 3.35 + this.player.y * 0.18, follow, dt)
     const sx = this.shake ? (Math.random() - 0.5) * this.shake : 0
     const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0
     this.camera.position.set(this.camX + sx, this.camY + sy, this.camera.aspect < 0.75 ? 9.1 : 8.15)
@@ -731,12 +732,12 @@ export class GameEngine {
     this.fps = this.frames / this.fpsAcc
     this.frames = 0
     this.fpsAcc = 0
-    if (this.fps < 44) this.fpsLow += 1
+    if (this.fps < (this.mobile ? 48 : 44)) this.fpsLow += 1
     else this.fpsLow = 0
-    if (this.fpsLow >= 4 && !this.autoDropped) {
+    if (this.fpsLow >= (this.mobile ? 2 : 4) && !this.autoDropped) {
       this.autoDropped = true
       this.disposeComposer()
-      this.renderer.setPixelRatio(Math.min(this.pixelRatio('low'), 1.1))
+      this.renderer.setPixelRatio(Math.min(this.pixelRatio('low'), 1))
       this.world.setQuality('low', this.settings.reducedMotion)
     }
     ;(window as unknown as { __neonPerf?: { fps: number } }).__neonPerf = { fps: Math.round(this.fps) }
@@ -768,8 +769,22 @@ export class GameEngine {
   }
 
   private pixelRatio(quality: Quality): number {
-    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.15 : this.mobile ? 1.25 : 1.5
-    return Math.min(window.devicePixelRatio || 1, cap)
+    const dpr = window.devicePixelRatio || 1
+    if (this.mobile) {
+      const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.08 : 1.15
+      return Math.min(dpr, cap)
+    }
+    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.15 : 1.5
+    return Math.min(dpr, cap)
+  }
+
+  private worldQuality(quality: Quality): Quality {
+    if (this.mobile && quality === 'high') return 'medium'
+    return quality
+  }
+
+  private canShake(): boolean {
+    return this.settings.cameraShake && !this.settings.reducedMotion && !this.mobile
   }
 
   private detectMobile(): boolean {

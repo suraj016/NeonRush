@@ -5,6 +5,13 @@ type InputHandlers = {
   isGameplayActive: () => boolean
 }
 
+type PointerState = {
+  x: number
+  y: number
+  fired: boolean
+  lastFire: number
+}
+
 const KEY_MAP: Record<string, GameAction> = {
   a: 'left',
   arrowleft: 'left',
@@ -19,9 +26,23 @@ const KEY_MAP: Record<string, GameAction> = {
   p: 'pause',
 }
 
+const SWIPE_COOLDOWN_MS = 80
+
+export function swipeThreshold(width: number, height: number): number {
+  return Math.max(16, Math.min(width, height) * 0.04)
+}
+
+export function readSwipe(dx: number, dy: number, threshold: number): GameAction | null {
+  const absX = Math.abs(dx)
+  const absY = Math.abs(dy)
+  if (absX < threshold && absY < threshold) return null
+  if (absX >= absY) return dx > 0 ? 'right' : 'left'
+  return dy > 0 ? 'slide' : 'jump'
+}
+
 export class InputManager {
   private handlers: InputHandlers
-  private pointers = new Map<number, { x: number; y: number }>()
+  private pointers = new Map<number, PointerState>()
   private element: HTMLElement
   private disposed = false
 
@@ -30,10 +51,12 @@ export class InputManager {
     this.handlers = handlers
     window.addEventListener('keydown', this.onKeyDown, { passive: false })
     element.addEventListener('pointerdown', this.onPointerDown)
-    element.addEventListener('pointerup', this.onPointerUp)
-    element.addEventListener('pointercancel', this.onPointerCancel)
+    window.addEventListener('pointermove', this.onPointerMove, { passive: false })
+    window.addEventListener('pointerup', this.onPointerUp)
+    window.addEventListener('pointercancel', this.onPointerCancel)
     element.addEventListener('contextmenu', this.onContext)
-    element.addEventListener('touchmove', this.onTouchMove, { passive: false })
+    element.addEventListener('touchstart', this.onTouchBlock, { passive: false })
+    element.addEventListener('touchmove', this.onTouchBlock, { passive: false })
   }
 
   dispose(): void {
@@ -41,10 +64,12 @@ export class InputManager {
     this.disposed = true
     window.removeEventListener('keydown', this.onKeyDown)
     this.element.removeEventListener('pointerdown', this.onPointerDown)
-    this.element.removeEventListener('pointerup', this.onPointerUp)
-    this.element.removeEventListener('pointercancel', this.onPointerCancel)
+    window.removeEventListener('pointermove', this.onPointerMove)
+    window.removeEventListener('pointerup', this.onPointerUp)
+    window.removeEventListener('pointercancel', this.onPointerCancel)
     this.element.removeEventListener('contextmenu', this.onContext)
-    this.element.removeEventListener('touchmove', this.onTouchMove)
+    this.element.removeEventListener('touchstart', this.onTouchBlock)
+    this.element.removeEventListener('touchmove', this.onTouchBlock)
     this.pointers.clear()
   }
 
@@ -63,31 +88,67 @@ export class InputManager {
   private onPointerDown = (event: PointerEvent): void => {
     const target = event.target as HTMLElement | null
     if (target?.closest('button, a, input, label, [role="dialog"]')) return
-    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (!this.handlers.isGameplayActive()) return
+    if (event.isPrimary === false) return
+    try {
+      this.element.setPointerCapture(event.pointerId)
+    } catch {
+      /* capture is optional on some hosts */
+    }
+    this.pointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      fired: false,
+      lastFire: 0,
+    })
+  }
+
+  private onPointerMove = (event: PointerEvent): void => {
+    const point = this.pointers.get(event.pointerId)
+    if (!point || !this.handlers.isGameplayActive()) return
+    event.preventDefault()
+    this.applySwipe(point, event.clientX, event.clientY)
   }
 
   private onPointerUp = (event: PointerEvent): void => {
-    const start = this.pointers.get(event.pointerId)
-    this.pointers.delete(event.pointerId)
-    if (!start || !this.handlers.isGameplayActive()) return
-    const dx = event.clientX - start.x
-    const dy = event.clientY - start.y
-    const absX = Math.abs(dx)
-    const absY = Math.abs(dy)
-    if (absX < 28 && absY < 28) return
-    if (absX > absY) this.handlers.onAction(dx > 0 ? 'right' : 'left')
-    else this.handlers.onAction(dy > 0 ? 'slide' : 'jump')
+    const point = this.pointers.get(event.pointerId)
+    this.release(event.pointerId)
+    if (!point || !this.handlers.isGameplayActive()) return
+    if (!point.fired) this.applySwipe(point, event.clientX, event.clientY)
   }
 
   private onPointerCancel = (event: PointerEvent): void => {
-    this.pointers.delete(event.pointerId)
+    this.release(event.pointerId)
   }
 
   private onContext = (event: Event): void => {
     if (this.handlers.isGameplayActive()) event.preventDefault()
   }
 
-  private onTouchMove = (event: TouchEvent): void => {
-    if (this.handlers.isGameplayActive()) event.preventDefault()
+  private onTouchBlock = (event: TouchEvent): void => {
+    if (!this.handlers.isGameplayActive()) return
+    if ((event.target as HTMLElement | null)?.closest('button, a, input, label, [role="dialog"]')) return
+    event.preventDefault()
+  }
+
+  private applySwipe(point: PointerState, x: number, y: number): void {
+    const now = performance.now()
+    if (now - point.lastFire < SWIPE_COOLDOWN_MS) return
+    const action = readSwipe(x - point.x, y - point.y, swipeThreshold(window.innerWidth, window.innerHeight))
+    if (!action) return
+    this.handlers.onAction(action)
+    point.x = x
+    point.y = y
+    point.fired = true
+    point.lastFire = now
+  }
+
+  private release(id: number): void {
+    this.pointers.delete(id)
+    try {
+      if (this.element.hasPointerCapture(id)) this.element.releasePointerCapture(id)
+    } catch {
+      /* already released */
+    }
   }
 }

@@ -17,7 +17,7 @@ export const PLAYER = {
   slideHeight: 0.62,
   halfWidth: 0.36,
   halfDepth: 0.32,
-  laneLerp: 14,
+  laneLerp: 17,
   gravity: -28,
   jumpVelocity: 10.1,
   slideDuration: 0.55,

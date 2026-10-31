@@ -26,6 +26,9 @@ body,
 
 body {
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 button,
@@ -65,9 +68,13 @@ img {
   touch-action: none;
 }
 
+html.playing,
+html.playing body,
 html.playing .app-shell,
-html.playing .game-canvas {
+html.playing .game-canvas,
+html.playing .ui-layer {
   touch-action: none;
+  overscroll-behavior: none;
 }
 
 .ui-layer {
