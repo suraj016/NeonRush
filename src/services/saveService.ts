@@ -1,26 +1,50 @@
+import { emptyAchievements } from '../game/achievements.ts'
 import { DEFAULT_SETTINGS, SAVE_KEY, SAVE_VERSION, SKINS } from '../game/config.ts'
+import { isMapId } from '../game/maps.ts'
 import { emptyMissions } from '../game/missions.ts'
-import type { SaveData, Settings, SkinId } from '../game/types.ts'
+import type { AchievementId, AchievementRecord, Profile, SaveData, Settings, SkinId, Statistics } from '../game/types.ts'
+
+export function defaultProfile(): Profile {
+  return {
+    bestScore: 0,
+    bestDistance: 0,
+    totalEnergy: 0,
+    selectedSkin: 'pulse',
+    selectedMap: 'emerald',
+    totalRuns: 0,
+    longestTime: 0,
+    xp: 0,
+    level: 1,
+    seenTutorial: false,
+    lastPlayDate: '',
+    streak: 0,
+    dailyDate: '',
+    dailyProgress: 0,
+    dailyClaimed: false,
+  }
+}
+
+export function defaultStatistics(): Statistics {
+  return {
+    orbsLifetime: 0,
+    powerupsUsed: 0,
+    distanceLifetime: 0,
+    hazardsAvoided: 0,
+    laneChanges: 0,
+    nearMisses: 0,
+    mapsPlayed: [],
+    achievements: emptyAchievements(),
+  }
+}
 
 export function defaultSave(): SaveData {
   return {
     version: SAVE_VERSION,
     settings: { ...DEFAULT_SETTINGS },
-    profile: {
-      bestScore: 0,
-      bestDistance: 0,
-      totalEnergy: 0,
-      selectedSkin: 'pulse',
-      totalRuns: 0,
-      longestTime: 0,
-    },
+    profile: defaultProfile(),
     unlockedSkins: ['pulse'],
     missions: emptyMissions(),
-    statistics: {
-      orbsLifetime: 0,
-      powerupsUsed: 0,
-      distanceLifetime: 0,
-    },
+    statistics: defaultStatistics(),
   }
 }
 
@@ -50,6 +74,26 @@ function clamp01(value: unknown, fallback: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
+function nonNeg(value: unknown, fallback = 0): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) return fallback
+  return Math.max(0, value)
+}
+
+function sanitizeAchievements(raw: unknown): Record<AchievementId, AchievementRecord> {
+  const next = emptyAchievements()
+  if (!raw || typeof raw !== 'object') return next
+  const data = raw as Partial<Record<AchievementId, Partial<AchievementRecord>>>
+  for (const id of Object.keys(next) as AchievementId[]) {
+    const rec = data[id]
+    if (!rec) continue
+    next[id] = {
+      unlocked: Boolean(rec.unlocked),
+      claimed: Boolean(rec.claimed || rec.unlocked),
+    }
+  }
+  return next
+}
+
 export function migrateSave(raw: unknown): SaveData {
   const base = defaultSave()
   if (!raw || typeof raw !== 'object') return base
@@ -73,23 +117,41 @@ export function migrateSave(raw: unknown): SaveData {
     }
   }
 
+  const mapsPlayed = Array.isArray(data.statistics?.mapsPlayed)
+    ? data.statistics.mapsPlayed.filter(isMapId)
+    : []
+
   return {
     version: SAVE_VERSION,
     settings: sanitizeSettings(data.settings),
     profile: {
-      bestScore: Math.max(0, data.profile?.bestScore ?? 0),
-      bestDistance: Math.max(0, data.profile?.bestDistance ?? 0),
-      totalEnergy: Math.max(0, data.profile?.totalEnergy ?? 0),
+      bestScore: nonNeg(data.profile?.bestScore),
+      bestDistance: nonNeg(data.profile?.bestDistance),
+      totalEnergy: nonNeg(data.profile?.totalEnergy),
       selectedSkin: unlocked.includes(selected) ? selected : 'pulse',
-      totalRuns: Math.max(0, data.profile?.totalRuns ?? 0),
-      longestTime: Math.max(0, data.profile?.longestTime ?? 0),
+      selectedMap: isMapId(data.profile?.selectedMap) ? data.profile.selectedMap : 'emerald',
+      totalRuns: nonNeg(data.profile?.totalRuns),
+      longestTime: nonNeg(data.profile?.longestTime),
+      xp: nonNeg(data.profile?.xp),
+      level: Math.max(1, Math.floor(nonNeg(data.profile?.level, 1))),
+      seenTutorial: Boolean(data.profile?.seenTutorial),
+      lastPlayDate: typeof data.profile?.lastPlayDate === 'string' ? data.profile.lastPlayDate : '',
+      streak: nonNeg(data.profile?.streak),
+      dailyDate: typeof data.profile?.dailyDate === 'string' ? data.profile.dailyDate : '',
+      dailyProgress: nonNeg(data.profile?.dailyProgress),
+      dailyClaimed: Boolean(data.profile?.dailyClaimed),
     },
     unlockedSkins: Array.from(new Set<SkinId>(unlocked)),
     missions,
     statistics: {
-      orbsLifetime: Math.max(0, data.statistics?.orbsLifetime ?? 0),
-      powerupsUsed: Math.max(0, data.statistics?.powerupsUsed ?? 0),
-      distanceLifetime: Math.max(0, data.statistics?.distanceLifetime ?? 0),
+      orbsLifetime: nonNeg(data.statistics?.orbsLifetime),
+      powerupsUsed: nonNeg(data.statistics?.powerupsUsed),
+      distanceLifetime: nonNeg(data.statistics?.distanceLifetime),
+      hazardsAvoided: nonNeg(data.statistics?.hazardsAvoided),
+      laneChanges: nonNeg(data.statistics?.laneChanges),
+      nearMisses: nonNeg(data.statistics?.nearMisses),
+      mapsPlayed: Array.from(new Set(mapsPlayed)),
+      achievements: sanitizeAchievements(data.statistics?.achievements),
     },
   }
 }

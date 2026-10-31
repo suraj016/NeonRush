@@ -1,7 +1,8 @@
+import type { MapId } from './maps.ts'
 import type { MissionId, Settings, SkinId } from './types.ts'
 import { asset } from '../utils/assets.ts'
 
-export const SAVE_VERSION = 1
+export const SAVE_VERSION = 2
 export const SAVE_KEY = 'neon-rush-save-v1'
 
 export const LANES = [-2.35, 0, 2.35] as const
@@ -34,6 +35,8 @@ export const SCORE = {
   orb: 10,
   powerup: 25,
   missionBonus: 200,
+  nearMiss: 8,
+  milestone: 50,
 }
 
 export const POWERUP = {
@@ -102,7 +105,9 @@ export const MISSIONS: Record<
     target: number
     reward: number
     scope: 'run' | 'lifetime'
-    stat: 'orbs' | 'duration' | 'distance' | 'powerups' | 'score' | 'orbsLifetime'
+    stat: 'orbs' | 'duration' | 'distance' | 'powerups' | 'score' | 'orbsLifetime' | 'hazardsAvoided' | 'laneChanges'
+    map?: MapId
+    group: 'run' | 'skill' | 'world'
   }
 > = {
   collect_50_run: {
@@ -113,6 +118,7 @@ export const MISSIONS: Record<
     reward: 60,
     scope: 'run',
     stat: 'orbs',
+    group: 'run',
   },
   survive_60: {
     id: 'survive_60',
@@ -122,6 +128,7 @@ export const MISSIONS: Record<
     reward: 70,
     scope: 'run',
     stat: 'duration',
+    group: 'run',
   },
   distance_1000: {
     id: 'distance_1000',
@@ -131,6 +138,7 @@ export const MISSIONS: Record<
     reward: 80,
     scope: 'run',
     stat: 'distance',
+    group: 'run',
   },
   powerups_3_run: {
     id: 'powerups_3_run',
@@ -140,6 +148,7 @@ export const MISSIONS: Record<
     reward: 50,
     scope: 'run',
     stat: 'powerups',
+    group: 'skill',
   },
   collect_100_total: {
     id: 'collect_100_total',
@@ -149,6 +158,7 @@ export const MISSIONS: Record<
     reward: 90,
     scope: 'lifetime',
     stat: 'orbsLifetime',
+    group: 'run',
   },
   score_5000: {
     id: 'score_5000',
@@ -158,6 +168,60 @@ export const MISSIONS: Record<
     reward: 120,
     scope: 'run',
     stat: 'score',
+    group: 'run',
+  },
+  avoid_20_run: {
+    id: 'avoid_20_run',
+    title: 'Clean Lines',
+    description: 'Avoid 20 obstacles in a single run.',
+    target: 20,
+    reward: 50,
+    scope: 'run',
+    stat: 'hazardsAvoided',
+    group: 'skill',
+  },
+  lanes_20_run: {
+    id: 'lanes_20_run',
+    title: 'Lane Dancer',
+    description: 'Change lanes 20 times in one escape.',
+    target: 20,
+    reward: 40,
+    scope: 'run',
+    stat: 'laneChanges',
+    group: 'skill',
+  },
+  emerald_orbs_30: {
+    id: 'emerald_orbs_30',
+    title: 'Emerald Harvest',
+    description: 'Collect 30 energy cores in Cyber Emerald.',
+    target: 30,
+    reward: 55,
+    scope: 'run',
+    stat: 'orbs',
+    map: 'emerald',
+    group: 'world',
+  },
+  desert_1000: {
+    id: 'desert_1000',
+    title: 'Canyon Mile',
+    description: 'Reach 1,000 metres in Desert Frontier.',
+    target: 1000,
+    reward: 70,
+    scope: 'run',
+    stat: 'distance',
+    map: 'desert',
+    group: 'world',
+  },
+  frozen_avoid_20: {
+    id: 'frozen_avoid_20',
+    title: 'Ice Discipline',
+    description: 'Avoid 20 obstacles in Frozen Wilds.',
+    target: 20,
+    reward: 60,
+    scope: 'run',
+    stat: 'hazardsAvoided',
+    map: 'frozen',
+    group: 'world',
   },
 }
 

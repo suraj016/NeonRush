@@ -28,6 +28,10 @@ export function runStatValue(
       return run.score
     case 'orbsLifetime':
       return lifetimeOrbs
+    case 'hazardsAvoided':
+      return run.hazardsAvoided
+    case 'laneChanges':
+      return run.laneChanges
     default:
       return 0
   }
@@ -45,6 +49,10 @@ export function applyMissionProgress(
   for (const id of Object.keys(MISSIONS) as MissionId[]) {
     const def = MISSIONS[id]
     const prev = current[id] ?? { progress: 0, completed: false, claimed: false }
+    if (def.map && run.mapId !== def.map) {
+      next[id] = prev
+      continue
+    }
     const value = runStatValue(id, run, lifetimeOrbs)
     const progress = def.scope === 'lifetime' ? value : Math.max(prev.progress, value)
     const justCompleted = !prev.completed && progress >= def.target

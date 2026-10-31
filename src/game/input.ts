@@ -53,6 +53,7 @@ export class InputManager {
     if (!action) return
     if (this.handlers.isGameplayActive()) {
       event.preventDefault()
+      if (event.repeat && (action === 'left' || action === 'right')) return
       this.handlers.onAction(action)
     } else if (action === 'pause' && event.key.toLowerCase() === 'escape') {
       this.handlers.onAction(action)

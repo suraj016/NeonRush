@@ -6,6 +6,23 @@ import type { AABB, Lane, ObstacleType, PickupType } from './types.ts'
 import type { TrackSegment } from './track.ts'
 import type { RNG } from '../utils/rng.ts'
 import type { DifficultyState } from './difficulty.ts'
+import type { MapId } from './maps.ts'
+import {
+  makeDesertBarrier,
+  makeDesertGap,
+  makeDesertLow,
+  makeDesertMoving,
+  makeDesertOrb,
+  makeDesertOverhead,
+  makeDesertSpinner,
+  makeFrozenBarrier,
+  makeFrozenGap,
+  makeFrozenLow,
+  makeFrozenMoving,
+  makeFrozenOrb,
+  makeFrozenOverhead,
+  makeFrozenSpinner,
+} from './mapProps.ts'
 import {
   createPropGeos,
   disposePropGeos,
@@ -30,6 +47,8 @@ export type SpawnedHazard = {
   localZ: number
   segment: TrackSegment
   alive: boolean
+  passed: boolean
+  nearMissed: boolean
   spin: number
   moveFrom: Lane
   moveTo: Lane
@@ -66,6 +85,7 @@ export class Spawner {
   private pools: Pools
   private geos!: PropGeos
   private materials!: MaterialSet
+  private mapId: MapId = 'emerald'
   private lastDecision = 40
   private spawnedDistance = 0
   private scratchBox: AABB = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }
@@ -84,7 +104,15 @@ export class Spawner {
       multiplier: [],
     }
     this.materials = materials
-    this.buildPools(materials)
+    this.buildPools()
+  }
+
+  setMap(id: MapId): void {
+    if (id === this.mapId) return
+    this.reclaimAll()
+    this.clearPools()
+    this.mapId = id
+    this.buildPools()
   }
 
   reset(): void {
@@ -221,60 +249,115 @@ export class Spawner {
   }
 
   private spawnPattern(segment: TrackSegment, localZ: number, rng: RNG, difficulty: DifficultyState): void {
-    const roll = rng.next()
     const blocked = new Set<Lane>()
     const open = (): Lane[] => ([0, 1, 2] as Lane[]).filter((lane) => !blocked.has(lane))
+    const roll = rng.next()
+    const tier = difficulty.tierIndex
 
-    if (roll < 0.2) {
-      const lane = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'barrier', lane, localZ)
-      blocked.add(lane)
-    } else if (roll < 0.36) {
-      const first = rng.pick([0, 1, 2] as Lane[])
-      const second = rng.pick(([0, 1, 2] as Lane[]).filter((lane) => lane !== first))
-      this.addHazard(segment, 'barrier', first, localZ)
-      this.addHazard(segment, 'low', second, localZ)
-      blocked.add(first)
-    } else if (roll < 0.5) {
-      const lane = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'overhead', lane, localZ)
-      if (rng.chance(0.45)) {
-        const other = rng.pick(open().filter((item) => item !== lane))
-        this.addHazard(segment, 'low', other, localZ)
-      }
-    } else if (roll < 0.62) {
-      const lane = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'low', lane, localZ)
-      if (rng.chance(0.5)) {
-        const other = rng.pick(([0, 1, 2] as Lane[]).filter((item) => item !== lane))
-        this.addHazard(segment, 'low', other, localZ)
-      }
-    } else if (roll < 0.62 + difficulty.movingChance) {
-      const from = rng.pick([0, 2] as Lane[])
-      const to = from === 0 ? 2 : 0
-      this.addHazard(segment, 'moving', from, localZ, from, to)
-    } else if (roll < 0.8) {
-      const lane = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'spinner', lane, localZ)
-    } else if (roll < 0.9 && difficulty.tierIndex > 0) {
-      const lane = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'gap', lane, localZ)
-      segment.lanes[lane].visible = false
+    if (tier === 0) {
+      if (roll < 0.28) this.patternLaneDecision(segment, localZ, rng, blocked)
+      else if (roll < 0.52) this.patternJump(segment, localZ, rng)
+      else if (roll < 0.74) this.patternSlide(segment, localZ, rng)
+      else this.patternTrail(segment, localZ, rng)
+    } else if (tier === 1) {
+      if (roll < 0.2) this.patternLaneDecision(segment, localZ, rng, blocked)
+      else if (roll < 0.38) this.patternJump(segment, localZ, rng)
+      else if (roll < 0.52) this.patternSlide(segment, localZ, rng)
+      else if (roll < 0.7) this.patternRapid(segment, localZ, rng, blocked)
+      else if (roll < 0.86) this.patternRisk(segment, localZ, rng, blocked)
+      else this.patternTrail(segment, localZ, rng)
     } else {
-      const first = rng.pick([0, 1, 2] as Lane[])
-      this.addHazard(segment, 'overhead', first, localZ)
+      if (roll < 0.14) this.patternLaneDecision(segment, localZ, rng, blocked)
+      else if (roll < 0.28) this.patternJump(segment, localZ, rng)
+      else if (roll < 0.4) this.patternSlide(segment, localZ, rng)
+      else if (roll < 0.56) this.patternRapid(segment, localZ, rng, blocked)
+      else if (roll < 0.68) this.patternRisk(segment, localZ, rng, blocked)
+      else if (roll < 0.68 + difficulty.movingChance) this.patternMoving(segment, localZ, rng)
+      else if (roll < 0.86) this.patternSpinner(segment, localZ, rng, blocked)
+      else if (roll < 0.94 && tier >= 3) this.patternGap(segment, localZ, rng)
+      else this.patternTrail(segment, localZ, rng)
     }
 
-    for (const lane of open()) {
-      if (rng.chance(0.55 + difficulty.density * 0.2)) {
-        this.addPickup(segment, 'orb', lane, localZ + rng.range(-1.4, 1.4))
+    const safe = open()
+    for (const lane of safe) {
+      if (rng.chance(0.5 + difficulty.density * 0.22)) {
+        this.addPickup(segment, 'orb', lane, localZ + rng.range(-1.2, 1.2))
       }
     }
 
-    if (rng.chance(0.08 + difficulty.tierIndex * 0.03)) {
-      const lane = rng.pick(open().length ? open() : ([1] as Lane[]))
+    if (rng.chance(0.07 + difficulty.tierIndex * 0.03)) {
+      const lane = rng.pick(safe.length ? safe : ([1] as Lane[]))
       const type = rng.pick(['shield', 'magnet', 'multiplier'] as const)
       this.addPickup(segment, type, lane, localZ - 3)
+    }
+  }
+
+  private patternLaneDecision(segment: TrackSegment, localZ: number, rng: RNG, blocked: Set<Lane>): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'barrier', lane, localZ)
+    blocked.add(lane)
+    const reward = rng.pick(([0, 1, 2] as Lane[]).filter((item) => item !== lane))
+    this.placeTrail(segment, reward, localZ + 1.2, 3)
+  }
+
+  private patternJump(segment: TrackSegment, localZ: number, rng: RNG): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'low', lane, localZ)
+    this.placeTrail(segment, lane, localZ - 2.2, 3)
+  }
+
+  private patternSlide(segment: TrackSegment, localZ: number, rng: RNG): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'overhead', lane, localZ)
+    if (rng.chance(0.4)) this.addPickup(segment, 'orb', lane, localZ - 2)
+  }
+
+  private patternRapid(segment: TrackSegment, localZ: number, rng: RNG, blocked: Set<Lane>): void {
+    const first = rng.pick([0, 1, 2] as Lane[])
+    const second = rng.pick(([0, 1, 2] as Lane[]).filter((lane) => lane !== first))
+    this.addHazard(segment, 'barrier', first, localZ)
+    this.addHazard(segment, 'barrier', second, localZ)
+    blocked.add(first)
+    blocked.add(second)
+  }
+
+  private patternRisk(segment: TrackSegment, localZ: number, rng: RNG, blocked: Set<Lane>): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'barrier', lane, localZ)
+    blocked.add(lane)
+    this.placeTrail(segment, lane, localZ + 2.4, 2)
+    const safe = rng.pick(([0, 1, 2] as Lane[]).filter((item) => item !== lane))
+    this.addPickup(segment, 'orb', safe, localZ)
+  }
+
+  private patternMoving(segment: TrackSegment, localZ: number, rng: RNG): void {
+    const from = rng.pick([0, 2] as Lane[])
+    const to = from === 0 ? 2 : 0
+    this.addHazard(segment, 'moving', from, localZ, from, to)
+    this.placeTrail(segment, 1, localZ + 1.4, 3)
+  }
+
+  private patternSpinner(segment: TrackSegment, localZ: number, rng: RNG, blocked: Set<Lane>): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'spinner', lane, localZ)
+    blocked.add(lane)
+  }
+
+  private patternGap(segment: TrackSegment, localZ: number, rng: RNG): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.addHazard(segment, 'gap', lane, localZ)
+    segment.lanes[lane].visible = false
+    this.addPickup(segment, 'orb', lane, localZ - 2.4)
+  }
+
+  private patternTrail(segment: TrackSegment, localZ: number, rng: RNG): void {
+    const lane = rng.pick([0, 1, 2] as Lane[])
+    this.placeTrail(segment, lane, localZ + 1.6, 4)
+  }
+
+  private placeTrail(segment: TrackSegment, lane: Lane, startZ: number, count: number): void {
+    for (let i = 0; i < count; i += 1) {
+      this.addPickup(segment, 'orb', lane, startZ - i * 2.1)
     }
   }
 
@@ -304,6 +387,8 @@ export class Spawner {
       localZ,
       segment,
       alive: true,
+      passed: false,
+      nearMissed: false,
       spin: 0,
       moveFrom,
       moveTo,
@@ -338,16 +423,7 @@ export class Spawner {
   private acquire(type: ObstacleType | PickupType): THREE.Group {
     const item = this.pools[type].pop()
     if (item) return item
-    if (type === 'orb') return makeOrb(this.geos, this.materials)
-    if (type === 'barrier') return makeBarrier(this.geos, this.materials)
-    if (type === 'low') return makeLow(this.geos, this.materials)
-    if (type === 'overhead') return makeOverhead(this.geos, this.materials)
-    if (type === 'moving') return makeMoving(this.geos, this.materials)
-    if (type === 'spinner') return makeSpinner(this.geos, this.materials)
-    if (type === 'gap') return makeGap(this.geos, this.materials)
-    if (type === 'shield') return makeShield(this.geos, this.materials)
-    if (type === 'magnet') return makeMagnet(this.geos, this.materials)
-    return makeMultiplier(this.geos, this.materials)
+    return this.makeProp(type)
   }
 
   private release(type: ObstacleType | PickupType, mesh: THREE.Group): void {
@@ -370,20 +446,66 @@ export class Spawner {
     this.pickups = []
   }
 
-  private buildPools(materials: MaterialSet): void {
-    this.geos = createPropGeos()
-    const fill = (type: keyof Pools, count: number, factory: () => THREE.Group) => {
-      for (let i = 0; i < count; i += 1) this.pools[type].push(factory())
+  private clearPools(): void {
+    this.pools.barrier = []
+    this.pools.low = []
+    this.pools.overhead = []
+    this.pools.moving = []
+    this.pools.spinner = []
+    this.pools.gap = []
+    this.pools.orb = []
+    this.pools.shield = []
+    this.pools.magnet = []
+    this.pools.multiplier = []
+  }
+
+  private makeProp(type: ObstacleType | PickupType): THREE.Group {
+    const geos = this.geos
+    const mats = this.materials
+    if (type === 'shield') return makeShield(geos, mats)
+    if (type === 'magnet') return makeMagnet(geos, mats)
+    if (type === 'multiplier') return makeMultiplier(geos, mats)
+    if (this.mapId === 'desert') {
+      if (type === 'orb') return makeDesertOrb(geos, mats)
+      if (type === 'barrier') return makeDesertBarrier(geos, mats)
+      if (type === 'low') return makeDesertLow(geos, mats)
+      if (type === 'overhead') return makeDesertOverhead(geos, mats)
+      if (type === 'moving') return makeDesertMoving(geos, mats)
+      if (type === 'spinner') return makeDesertSpinner(geos, mats)
+      return makeDesertGap(geos, mats)
     }
-    fill('barrier', 16, () => makeBarrier(this.geos, materials))
-    fill('low', 16, () => makeLow(this.geos, materials))
-    fill('overhead', 14, () => makeOverhead(this.geos, materials))
-    fill('moving', 8, () => makeMoving(this.geos, materials))
-    fill('spinner', 10, () => makeSpinner(this.geos, materials))
-    fill('gap', 8, () => makeGap(this.geos, materials))
-    fill('orb', 72, () => makeOrb(this.geos, materials))
-    fill('shield', 6, () => makeShield(this.geos, materials))
-    fill('magnet', 6, () => makeMagnet(this.geos, materials))
-    fill('multiplier', 6, () => makeMultiplier(this.geos, materials))
+    if (this.mapId === 'frozen') {
+      if (type === 'orb') return makeFrozenOrb(geos, mats)
+      if (type === 'barrier') return makeFrozenBarrier(geos, mats)
+      if (type === 'low') return makeFrozenLow(geos, mats)
+      if (type === 'overhead') return makeFrozenOverhead(geos, mats)
+      if (type === 'moving') return makeFrozenMoving(geos, mats)
+      if (type === 'spinner') return makeFrozenSpinner(geos, mats)
+      return makeFrozenGap(geos, mats)
+    }
+    if (type === 'orb') return makeOrb(geos, mats)
+    if (type === 'barrier') return makeBarrier(geos, mats)
+    if (type === 'low') return makeLow(geos, mats)
+    if (type === 'overhead') return makeOverhead(geos, mats)
+    if (type === 'moving') return makeMoving(geos, mats)
+    if (type === 'spinner') return makeSpinner(geos, mats)
+    return makeGap(geos, mats)
+  }
+
+  private buildPools(): void {
+    if (!this.geos) this.geos = createPropGeos()
+    const fill = (type: keyof Pools, count: number) => {
+      for (let i = 0; i < count; i += 1) this.pools[type].push(this.makeProp(type))
+    }
+    fill('barrier', 16)
+    fill('low', 16)
+    fill('overhead', 14)
+    fill('moving', 8)
+    fill('spinner', 10)
+    fill('gap', 8)
+    fill('orb', 72)
+    fill('shield', 6)
+    fill('magnet', 6)
+    fill('multiplier', 6)
   }
 }

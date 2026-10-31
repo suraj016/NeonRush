@@ -11,12 +11,13 @@ import { evaluateDifficulty } from './difficulty.ts'
 import { InputManager, type GameAction } from './input.ts'
 import { createMaterials, type MaterialSet } from './materials.ts'
 import { Player } from './player.ts'
-import { distanceScore, orbScore, powerupScore } from './score.ts'
+import { distanceScore, milestoneScore, nearMissScore, orbScore, powerupScore } from './score.ts'
 import { PickupFx } from './fx.ts'
 import { Spawner, type SpawnedPickup } from './spawner.ts'
 import { TrackManager } from './track.ts'
 import { World } from './world.ts'
 import { EngineStates } from './types.ts'
+import type { MapId } from './maps.ts'
 import type {
   ActivePowerUp,
   EngineHooks,
@@ -24,6 +25,7 @@ import type {
   HudSnapshot,
   PowerUpType,
   Quality,
+  RunStats,
   Settings,
   SkinId,
 } from './types.ts'
@@ -65,7 +67,13 @@ export class GameEngine {
   private disposed = false
   private canvas: HTMLCanvasElement
   private skin: SkinId
+  private mapId: MapId = 'emerald'
   private lights: THREE.Light[] = []
+  private ambient!: THREE.AmbientLight
+  private hemi!: THREE.HemisphereLight
+  private key!: THREE.DirectionalLight
+  private fill!: THREE.DirectionalLight
+  private rim!: THREE.DirectionalLight
   private composer: EffectComposer | null = null
   private bloomPass: UnrealBloomPass | null = null
   private pmrem: THREE.PMREMGenerator | null = null
@@ -78,7 +86,16 @@ export class GameEngine {
   private mobile = false
   private pausedDrawn = false
   private playerBox = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }
-  private lastHud = { score: -1, distance: -1, energy: -1, speed: -1, ready: '' as string | null }
+  private lastHud = { score: -1, distance: -1, energy: -1, speed: -1, ready: '' as string | null, hint: '' as string | null, milestone: '' as string | null }
+  private hazardsAvoided = 0
+  private laneChanges = 0
+  private nearMisses = 0
+  private nearCool = 0
+  private tutorialActive = false
+  private milestoneLabel: string | null = null
+  private milestoneTimer = 0
+  private nextMilestone = 0
+  private readonly milestones = [500, 1000, 2500, 5000]
 
   constructor(canvas: HTMLCanvasElement, settings: Settings, skin: SkinId, hooks: EngineHooks) {
     this.canvas = canvas
@@ -129,6 +146,7 @@ export class GameEngine {
 
     this.scene.add(this.track.root, this.world.root, this.player.root)
     this.addLights()
+    this.applyMap('emerald')
     this.setupComposer(this.shouldBloom())
     this.resize()
     window.addEventListener('resize', this.onResize)
@@ -191,6 +209,23 @@ export class GameEngine {
   applySkin(id: SkinId): void {
     this.skin = id
     this.player.applySkin(id)
+  }
+
+  setTutorial(active: boolean): void {
+    this.tutorialActive = active
+  }
+
+  applyMap(id: MapId): void {
+    this.mapId = id
+    this.world.setMap(id)
+    this.track.setMap(id)
+    this.spawner.setMap(id)
+    this.applyMapLights(id)
+    this.renderer.setClearColor(id === 'desert' ? 0xe8d4b0 : id === 'frozen' ? 0xd5e3ea : 0x102923, 1)
+    this.renderer.toneMappingExposure = id === 'desert' ? 1.08 : id === 'frozen' ? 1.06 : 1.28
+    this.scene.environmentIntensity = id === 'emerald' ? 0.42 : 0.16
+    this.setupComposer(this.shouldBloom())
+    if (this.state === EngineStates.MainMenu) this.seedMenu()
   }
 
   play(): void {
@@ -276,17 +311,8 @@ export class GameEngine {
       this.render()
       if (this.overTimer <= 0) {
         this.overTimer = 999
-        this.hooks.onGameOver({
-          score: Math.floor(this.score),
-          distance: Math.floor(this.distance),
-          energy: this.energy,
-          duration: this.duration,
-          orbs: this.orbs,
-          powerupsUsed: this.powerupsUsed,
-          isBestScore: false,
-          isBestDistance: false,
-          completedMissions: [],
-        })
+        this.tutorialActive = false
+        this.hooks.onGameOver(this.runStats())
       }
       return
     }
@@ -305,7 +331,10 @@ export class GameEngine {
 
     this.tickPowerups(dt)
     this.player.update(dt, difficulty.speed, !this.settings.reducedMotion)
+    if (this.player.justLanded) this.audio.play('land')
     this.player.setShieldVisible(this.powerups.shield > 0)
+    this.tickMilestones(dt, mul)
+    if (this.nearCool > 0) this.nearCool = Math.max(0, this.nearCool - dt)
 
     const recycled = this.track.advance(moved)
     for (const segment of recycled) {
@@ -320,6 +349,7 @@ export class GameEngine {
     this.world.update(dt, moved, this.distance, true)
     this.resolvePickups(dt)
     this.resolveHazards()
+    this.resolveAvoided()
     this.shake = damp(this.shake, 0, 8, dt)
     this.updateCamera(dt, false)
     this.hudAcc += dt
@@ -407,7 +437,10 @@ export class GameEngine {
 
   private tickPowerups(dt: number): void {
     for (const key of Object.keys(this.powerups) as PowerUpType[]) {
-      if (this.powerups[key] > 0) this.powerups[key] = Math.max(0, this.powerups[key] - dt)
+      const was = this.powerups[key]
+      if (was <= 0) continue
+      this.powerups[key] = Math.max(0, was - dt)
+      if (was > 0 && this.powerups[key] === 0) this.audio.play('ui')
     }
   }
 
@@ -418,8 +451,8 @@ export class GameEngine {
       return
     }
     if (this.state !== EngineStates.Playing && this.state !== EngineStates.Ready) return
-    if (action === 'left') this.player.moveLeft()
-    if (action === 'right') this.player.moveRight()
+    if (action === 'left' && this.player.moveLeft() && this.state === EngineStates.Playing) this.laneChanges += 1
+    if (action === 'right' && this.player.moveRight() && this.state === EngineStates.Playing) this.laneChanges += 1
     if (this.state !== EngineStates.Playing) return
     if (action === 'jump' && this.player.jump()) this.audio.play('jump')
     if (action === 'slide' && this.player.slide()) this.audio.play('slide')
@@ -433,6 +466,13 @@ export class GameEngine {
     this.orbs = 0
     this.duration = 0
     this.powerupsUsed = 0
+    this.hazardsAvoided = 0
+    this.laneChanges = 0
+    this.nearMisses = 0
+    this.nearCool = 0
+    this.milestoneLabel = null
+    this.milestoneTimer = 0
+    this.nextMilestone = 0
     this.powerups = { shield: 0, magnet: 0, multiplier: 0 }
     this.shake = 0
     this.overTimer = 0
@@ -496,13 +536,17 @@ export class GameEngine {
       multiplier: this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1,
       powerups,
       readyLabel: ready,
+      hint: this.tutorialHint(),
+      milestone: this.milestoneLabel,
     }
     if (
       this.lastHud.score === hud.score &&
       this.lastHud.distance === hud.distance &&
       this.lastHud.energy === hud.energy &&
       this.lastHud.speed === Math.floor(hud.speed) &&
-      this.lastHud.ready === hud.readyLabel
+      this.lastHud.ready === hud.readyLabel &&
+      this.lastHud.hint === hud.hint &&
+      this.lastHud.milestone === hud.milestone
     ) {
       return
     }
@@ -511,7 +555,74 @@ export class GameEngine {
     this.lastHud.energy = hud.energy
     this.lastHud.speed = Math.floor(hud.speed)
     this.lastHud.ready = hud.readyLabel
+    this.lastHud.hint = hud.hint
+    this.lastHud.milestone = hud.milestone
     this.hooks.onHud(hud)
+  }
+
+  private runStats(): RunStats {
+    return {
+      score: Math.floor(this.score),
+      distance: Math.floor(this.distance),
+      energy: this.energy,
+      duration: this.duration,
+      orbs: this.orbs,
+      powerupsUsed: this.powerupsUsed,
+      hazardsAvoided: this.hazardsAvoided,
+      laneChanges: this.laneChanges,
+      nearMisses: this.nearMisses,
+      mapId: this.mapId,
+    }
+  }
+
+  private tutorialHint(): string | null {
+    if (!this.tutorialActive || this.state !== EngineStates.Playing) return null
+    if (this.duration < 4) return 'A / D or swipe to change lanes'
+    if (this.duration < 8) return 'W or swipe up to jump'
+    if (this.duration < 12) return 'S or swipe down to slide'
+    if (this.duration < 16) return 'Collect energy coins'
+    return null
+  }
+
+  private tickMilestones(dt: number, mul: number): void {
+    if (this.nextMilestone < this.milestones.length && this.distance >= this.milestones[this.nextMilestone]) {
+      const mark = this.milestones[this.nextMilestone]
+      this.nextMilestone += 1
+      this.milestoneLabel = `${mark.toLocaleString()} m`
+      this.milestoneTimer = 2.4
+      this.score += milestoneScore(mul)
+      this.audio.play('milestone')
+      this.pushHud(null)
+    }
+    if (this.milestoneTimer > 0) {
+      this.milestoneTimer -= dt
+      if (this.milestoneTimer <= 0) this.milestoneLabel = null
+    }
+  }
+
+  private resolveAvoided(): void {
+    const hazards = this.spawner.hazards
+    for (let i = 0; i < hazards.length; i += 1) {
+      const hazard = hazards[i]
+      if (!hazard.alive) continue
+      const worldZ = hazard.segment.group.position.z + hazard.localZ
+      if (!hazard.nearMissed && worldZ > -1.35 && worldZ < 1.15) {
+        const dx = Math.abs(hazard.mesh.position.x - this.player.x)
+        if (dx > 1.1 && dx < 3) {
+          hazard.nearMissed = true
+          this.nearMisses += 1
+          this.score += nearMissScore(this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1)
+          if (this.nearCool <= 0) {
+            this.audio.play('near')
+            this.nearCool = 0.28
+          }
+        }
+      }
+      if (!hazard.passed && worldZ > 1.6) {
+        hazard.passed = true
+        this.hazardsAvoided += 1
+      }
+    }
   }
 
   private setState(state: EngineState): void {
@@ -520,20 +631,77 @@ export class GameEngine {
   }
 
   private addLights(): void {
-    const ambient = new THREE.AmbientLight(0x1f4a42, 0.58)
-    const hemi = new THREE.HemisphereLight(0x8fd4c4, 0x102923, 1.08)
-    const key = new THREE.DirectionalLight(0xe9fff6, 0.52)
-    key.position.set(-6, 14, 8)
-    const fill = new THREE.DirectionalLight(0x18b8c9, 0.32)
-    fill.position.set(8, 7, 5)
-    const rim = new THREE.DirectionalLight(0x00f5a0, 0.34)
-    rim.position.set(5, 4, -6)
-    this.scene.add(ambient, hemi, key, fill, rim)
-    this.lights.push(ambient, hemi, key, fill, rim)
+    this.ambient = new THREE.AmbientLight(0x1f4a42, 0.58)
+    this.hemi = new THREE.HemisphereLight(0x8fd4c4, 0x102923, 1.08)
+    this.key = new THREE.DirectionalLight(0xe9fff6, 0.52)
+    this.key.position.set(-6, 14, 8)
+    this.fill = new THREE.DirectionalLight(0x18b8c9, 0.32)
+    this.fill.position.set(8, 7, 5)
+    this.rim = new THREE.DirectionalLight(0x00f5a0, 0.34)
+    this.rim.position.set(5, 4, -6)
+    this.scene.add(this.ambient, this.hemi, this.key, this.fill, this.rim)
+    this.lights.push(this.ambient, this.hemi, this.key, this.fill, this.rim)
+  }
+
+  private applyMapLights(id: MapId): void {
+    if (id === 'desert') {
+      this.ambient.color.setHex(0xe6d6b8)
+      this.ambient.intensity = 0.64
+      this.hemi.color.setHex(0xffefd2)
+      this.hemi.groundColor.setHex(0x7a5a40)
+      this.hemi.intensity = 0.98
+      this.key.color.setHex(0xfff2d6)
+      this.key.intensity = 0.78
+      this.key.position.set(-12, 18, 2)
+      this.fill.color.setHex(0xc4b089)
+      this.fill.intensity = 0.18
+      this.fill.position.set(9, 6, 6)
+      this.rim.color.setHex(0x8a6a4a)
+      this.rim.intensity = 0.14
+      this.rim.position.set(5, 5, -8)
+      return
+    }
+    if (id === 'frozen') {
+      this.ambient.color.setHex(0xd8e4ec)
+      this.ambient.intensity = 0.66
+      this.hemi.color.setHex(0xf2f6f8)
+      this.hemi.groundColor.setHex(0x4a5e6c)
+      this.hemi.intensity = 0.98
+      this.key.color.setHex(0xfff6ea)
+      this.key.intensity = 0.7
+      this.key.position.set(10, 17, 5)
+      this.fill.color.setHex(0xb9c8d4)
+      this.fill.intensity = 0.2
+      this.fill.position.set(-7, 6, 5)
+      this.rim.color.setHex(0x8aa4b4)
+      this.rim.intensity = 0.16
+      this.rim.position.set(-4, 5, -7)
+      return
+    }
+    this.ambient.color.setHex(0x1f4a42)
+    this.ambient.intensity = 0.58
+    this.hemi.color.setHex(0x8fd4c4)
+    this.hemi.groundColor.setHex(0x102923)
+    this.hemi.intensity = 1.08
+    this.key.color.setHex(0xe9fff6)
+    this.key.intensity = 0.52
+    this.key.position.set(-6, 14, 8)
+    this.fill.color.setHex(0x18b8c9)
+    this.fill.intensity = 0.32
+    this.fill.position.set(8, 7, 5)
+    this.rim.color.setHex(0x00f5a0)
+    this.rim.intensity = 0.34
+    this.rim.position.set(5, 4, -6)
   }
 
   private shouldBloom(): boolean {
-    return this.settings.quality === 'high' && !this.settings.reducedMotion && !this.mobile && !this.autoDropped
+    return (
+      this.mapId === 'emerald' &&
+      this.settings.quality === 'high' &&
+      !this.settings.reducedMotion &&
+      !this.mobile &&
+      !this.autoDropped
+    )
   }
 
   private disposeComposer(): void {

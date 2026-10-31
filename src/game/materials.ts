@@ -8,6 +8,19 @@ import {
   makeRoadAlbedo,
   makeSkyTexture,
 } from './cityTextures.ts'
+import {
+  makeAlpineRockTexture,
+  makeCanyonTexture,
+  makeDesertSkyTexture,
+  makeFrozenSkyTexture,
+  makeIceTexture,
+  makePackedSnowTexture,
+  makeSandstoneTexture,
+  makeSandTexture,
+  makeSnowTexture,
+  makeStoneRoadTexture,
+  makeWoodTexture,
+} from './mapTextures.ts'
 
 function makeWindowTexture(): THREE.CanvasTexture {
   return makeFacadeAlbedo(0)
@@ -26,6 +39,17 @@ export function createMaterials() {
   const facadeEmissive = [0, 1, 2, 3].map((seed) => makeFacadeEmissive(seed))
   const cityGrid = makeCityGrid()
   const skyTex = makeSkyTexture()
+  const sandTex = makeSandTexture()
+  const stoneRoadTex = makeStoneRoadTexture()
+  const canyonTex = makeCanyonTexture()
+  const sandstoneTex = makeSandstoneTexture()
+  const snowTex = makeSnowTexture()
+  const packedSnowTex = makePackedSnowTexture()
+  const alpineRockTex = makeAlpineRockTexture()
+  const iceTex = makeIceTexture()
+  const woodTex = makeWoodTexture()
+  const desertSkyTex = makeDesertSkyTexture()
+  const frozenSkyTex = makeFrozenSkyTexture()
   const holos = [
     makeHoloTexture('NEON RUSH', '#00F5A0', 'EMERALD TRANSIT'),
     makeHoloTexture('AETHER', '#18B8C9', 'GRID ONLINE'),
@@ -228,12 +252,171 @@ export function createMaterials() {
       roughness: 0.12,
       metalness: 0.84,
     }),
+    desertRoad: new THREE.MeshStandardMaterial({
+      color: 0xc4a46c,
+      map: stoneRoadTex,
+      roughness: 0.9,
+      metalness: 0.02,
+    }),
+    desertDeck: new THREE.MeshStandardMaterial({
+      color: 0xd4c08a,
+      map: sandTex,
+      roughness: 0.96,
+      metalness: 0,
+    }),
+    desertPit: new THREE.MeshStandardMaterial({ color: 0x6a4a32, roughness: 1, metalness: 0 }),
+    desertRail: new THREE.MeshStandardMaterial({
+      color: 0x8a6240,
+      map: sandstoneTex,
+      roughness: 0.9,
+      metalness: 0.03,
+    }),
+    desertDash: new THREE.MeshStandardMaterial({ color: 0x6b4a30, roughness: 0.92, metalness: 0 }),
+    sandstone: new THREE.MeshStandardMaterial({
+      color: 0xc4a06a,
+      map: sandstoneTex,
+      roughness: 0.88,
+      metalness: 0.03,
+    }),
+    canyon: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: canyonTex,
+      vertexColors: true,
+      roughness: 0.93,
+      metalness: 0,
+    }),
+    canyonLight: new THREE.MeshStandardMaterial({
+      color: 0xd2b888,
+      map: canyonTex,
+      roughness: 0.94,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    }),
+    mesaFar: new THREE.MeshStandardMaterial({
+      color: 0xd8c49a,
+      roughness: 0.96,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    }),
+    desertRock: new THREE.MeshStandardMaterial({
+      color: 0x8a5e3c,
+      map: sandstoneTex,
+      roughness: 0.94,
+      metalness: 0.02,
+    }),
+    cactus: new THREE.MeshStandardMaterial({ color: 0x6d7544, roughness: 0.88, metalness: 0 }),
+    desertShrub: new THREE.MeshStandardMaterial({ color: 0x7a7348, roughness: 0.92, metalness: 0 }),
+    goldCoin: new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      emissive: 0xc99a55,
+      emissiveIntensity: 0.35,
+      roughness: 0.28,
+      metalness: 0.55,
+    }),
+    desertSkyMat: new THREE.MeshBasicMaterial({
+      map: desertSkyTex,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+    }),
+    frozenRoad: new THREE.MeshStandardMaterial({
+      color: 0x8aa4b2,
+      map: packedSnowTex,
+      roughness: 0.62,
+      metalness: 0.06,
+    }),
+    frozenDeck: new THREE.MeshStandardMaterial({
+      color: 0xedf3f5,
+      map: snowTex,
+      roughness: 0.93,
+      metalness: 0,
+    }),
+    frozenPit: new THREE.MeshStandardMaterial({ color: 0x344b60, roughness: 1, metalness: 0 }),
+    frozenRail: new THREE.MeshStandardMaterial({
+      color: 0x7a5a40,
+      map: woodTex,
+      roughness: 0.88,
+      metalness: 0.03,
+    }),
+    frozenDash: new THREE.MeshStandardMaterial({ color: 0x426d86, roughness: 0.72, metalness: 0.05 }),
+    snow: new THREE.MeshStandardMaterial({
+      color: 0xedf3f5,
+      map: snowTex,
+      roughness: 0.92,
+      metalness: 0,
+    }),
+    ice: new THREE.MeshStandardMaterial({
+      color: 0xc5e4ef,
+      map: iceTex,
+      roughness: 0.28,
+      metalness: 0.12,
+      transparent: true,
+      opacity: 0.82,
+    }),
+    pine: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.88,
+      metalness: 0,
+    }),
+    pineDark: new THREE.MeshStandardMaterial({ color: 0x18372f, roughness: 0.9, metalness: 0 }),
+    bark: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: woodTex,
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0.02,
+    }),
+    mountain: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: alpineRockTex,
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0.03,
+    }),
+    peakFar: new THREE.MeshStandardMaterial({
+      color: 0xc7d6df,
+      roughness: 0.95,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    }),
+    alpineCliff: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: alpineRockTex,
+      vertexColors: true,
+      roughness: 0.91,
+      metalness: 0.02,
+    }),
+    frostCoin: new THREE.MeshStandardMaterial({
+      color: 0xedf3f5,
+      emissive: 0x79b9d0,
+      emissiveIntensity: 0.4,
+      roughness: 0.2,
+      metalness: 0.25,
+    }),
+    frozenSkyMat: new THREE.MeshBasicMaterial({
+      map: frozenSkyTex,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+    }),
     windowTex,
     roadTex,
     facadeMaps,
     facadeEmissive,
     cityGrid,
     skyTex,
+    sandTex,
+    stoneRoadTex,
+    canyonTex,
+    sandstoneTex,
+    snowTex,
+    packedSnowTex,
+    alpineRockTex,
+    iceTex,
+    woodTex,
+    desertSkyTex,
+    frozenSkyTex,
     holos,
   }
 

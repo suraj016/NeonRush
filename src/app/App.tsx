@@ -7,7 +7,9 @@ import { CharacterSelect } from '../screens/CharacterSelect.tsx'
 import { GameOverScreen } from '../screens/GameOverScreen.tsx'
 import { HowToPlay } from '../screens/HowToPlay.tsx'
 import { MainMenu } from '../screens/MainMenu.tsx'
+import { MapsScreen } from '../screens/MapsScreen.tsx'
 import { MissionsScreen } from '../screens/MissionsScreen.tsx'
+import { ProgressScreen } from '../screens/ProgressScreen.tsx'
 import { PauseScreen } from '../screens/PauseScreen.tsx'
 import { SettingsScreen } from '../screens/SettingsScreen.tsx'
 import { BootScreen } from '../screens/BootScreen.tsx'
@@ -47,7 +49,10 @@ export default function App() {
         onMissionProgress: (missions) => useGameStore.getState().applyMissions(missions),
       })
       setEngine(engine)
+      engine.applyMap(state.profile.selectedMap)
+      engine.setTutorial(!state.profile.seenTutorial)
       engine.start()
+      useGameStore.getState().ensureCalendar()
       useGameStore.getState().setScreen(Screens.Menu)
     } catch {
       useGameStore.getState().setWebglError(true)
@@ -85,7 +90,9 @@ export default function App() {
         {screen === Screens.HowTo ? <HowToPlay /> : null}
         {screen === Screens.Characters ? <CharacterSelect /> : null}
         {screen === Screens.Missions ? <MissionsScreen /> : null}
+        {screen === Screens.Progress ? <ProgressScreen /> : null}
         {screen === Screens.Settings ? <SettingsScreen /> : null}
+        {screen === Screens.Maps ? <MapsScreen /> : null}
         {screen === Screens.Playing ? <Hud /> : null}
         {screen === Screens.Paused ? <PauseScreen /> : null}
         {screen === Screens.GameOver ? <GameOverScreen /> : null}

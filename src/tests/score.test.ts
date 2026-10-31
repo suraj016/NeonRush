@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distanceScore, missionBonus, orbScore, powerupScore } from '../game/score.ts'
+import { distanceScore, milestoneScore, missionBonus, nearMissScore, orbScore, powerupScore } from '../game/score.ts'
 
 describe('score', () => {
   it('applies distance and multiplier', () => {
@@ -16,5 +16,11 @@ describe('score', () => {
   it('adds mission bonuses without inventing extra completions', () => {
     expect(missionBonus(0)).toBe(0)
     expect(missionBonus(2)).toBe(400)
+  })
+
+  it('scores near misses and distance milestones', () => {
+    expect(nearMissScore(1)).toBe(8)
+    expect(nearMissScore(2)).toBe(16)
+    expect(milestoneScore(1)).toBe(50)
   })
 })

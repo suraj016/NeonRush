@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import { THEMES } from './config.ts'
 import { createBuildingGeometry, createSkylineGeometry } from './cityBuildings.ts'
+import { createDesertEnv } from './envDesert.ts'
+import { createFrozenEnv } from './envFrozen.ts'
+import type { EnvPack } from './envShared.ts'
+import type { MapId } from './maps.ts'
 import type { MaterialSet } from './materials.ts'
 import type { Quality } from './types.ts'
 import { damp } from '../utils/math.ts'
@@ -48,6 +52,10 @@ export class World {
   private themeTarget = new THREE.Color()
   private themeAccent = new THREE.Color()
   private holoFrame = 0
+  private mapId: MapId = 'emerald'
+  private emeraldRoot = new THREE.Group()
+  private desert: EnvPack
+  private frozen: EnvPack
 
   constructor(scene: THREE.Scene, materials: MaterialSet, quality: Quality) {
     this.scene = scene
@@ -214,20 +222,63 @@ export class World {
     )
     this.particles.visible = particleCount > 0
     this.root.add(this.particles)
+
+    const existing = [...this.root.children]
+    for (const child of existing) this.emeraldRoot.add(child)
+    this.root.add(this.emeraldRoot)
+    this.desert = createDesertEnv(materials, quality)
+    this.frozen = createFrozenEnv(materials, quality)
+    this.desert.root.visible = false
+    this.frozen.root.visible = false
+    this.root.add(this.desert.root, this.frozen.root)
   }
 
   setQuality(quality: Quality, reduced: boolean): void {
     this.reduced = reduced
-    this.particles.visible = quality !== 'low' && !reduced
+    this.particles.visible = this.mapId === 'emerald' && quality !== 'low' && !reduced
+    this.desert.setReduced(reduced)
+    this.frozen.setReduced(reduced)
+  }
+
+  setMap(id: MapId): void {
+    this.mapId = id
+    this.emeraldRoot.visible = id === 'emerald'
+    this.desert.root.visible = id === 'desert'
+    this.frozen.root.visible = id === 'frozen'
+    this.particles.visible = id === 'emerald' && !this.reduced
+    const pack = id === 'desert' ? this.desert : id === 'frozen' ? this.frozen : null
+    if (pack) {
+      this.scene.background = new THREE.Color(pack.bg)
+      this.fog.color.setHex(pack.fog)
+      this.fog.near = pack.fogNear
+      this.fog.far = pack.fogFar
+    } else {
+      this.applyTheme(0, 8)
+    }
+  }
+
+  currentMap(): MapId {
+    return this.mapId
   }
 
   reset(): void {
     this.theme = 0
     this.time = 0
-    this.applyTheme(0, 1)
+    this.desert.reset()
+    this.frozen.reset()
+    if (this.mapId === 'emerald') this.applyTheme(0, 1)
+    else this.setMap(this.mapId)
   }
 
   update(dt: number, distanceMoved: number, runDistance: number, playing: boolean): void {
+    if (this.mapId === 'desert') {
+      this.desert.update(dt, distanceMoved, runDistance, playing)
+      return
+    }
+    if (this.mapId === 'frozen') {
+      this.frozen.update(dt, distanceMoved, runDistance, playing)
+      return
+    }
     this.time += dt
     const targetTheme = themeIndexForDistance(runDistance)
     if (targetTheme !== this.theme) this.theme = targetTheme
@@ -342,5 +393,7 @@ export class World {
     this.particleGeo.dispose()
     ;(this.particles.material as THREE.Material).dispose()
     for (const geo of this.extras) geo.dispose()
+    this.desert.dispose()
+    this.frozen.dispose()
   }
 }

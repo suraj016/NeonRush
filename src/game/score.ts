@@ -17,6 +17,14 @@ export function missionBonus(count: number): number {
   return count * SCORE.missionBonus
 }
 
+export function nearMissScore(multiplier: number): number {
+  return SCORE.nearMiss * multiplier
+}
+
+export function milestoneScore(multiplier: number): number {
+  return SCORE.milestone * multiplier
+}
+
 export function applyMultiplier(value: number, multiplier: number): number {
   return value * clamp(multiplier, 1, 8)
 }

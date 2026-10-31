@@ -1,10 +1,14 @@
+import type { MapId } from './maps.ts'
+
 export const Screens = {
   Boot: 'boot',
   Menu: 'menu',
   HowTo: 'howto',
   Characters: 'characters',
   Missions: 'missions',
+  Progress: 'progress',
   Settings: 'settings',
+  Maps: 'maps',
   Playing: 'playing',
   Paused: 'paused',
   GameOver: 'gameover',
@@ -47,8 +51,17 @@ export type Profile = {
   bestDistance: number
   totalEnergy: number
   selectedSkin: SkinId
+  selectedMap: MapId
   totalRuns: number
   longestTime: number
+  xp: number
+  level: number
+  seenTutorial: boolean
+  lastPlayDate: string
+  streak: number
+  dailyDate: string
+  dailyProgress: number
+  dailyClaimed: boolean
 }
 
 export type MissionId =
@@ -58,6 +71,27 @@ export type MissionId =
   | 'powerups_3_run'
   | 'collect_100_total'
   | 'score_5000'
+  | 'avoid_20_run'
+  | 'lanes_20_run'
+  | 'emerald_orbs_30'
+  | 'desert_1000'
+  | 'frozen_avoid_20'
+
+export type AchievementId =
+  | 'first_run'
+  | 'distance_1000'
+  | 'distance_5000'
+  | 'energy_100'
+  | 'energy_1000'
+  | 'survivor_50'
+  | 'map_explorer'
+  | 'mission_master'
+  | 'personal_best'
+
+export type AchievementRecord = {
+  unlocked: boolean
+  claimed: boolean
+}
 
 export type MissionRecord = {
   progress: number
@@ -69,6 +103,11 @@ export type Statistics = {
   orbsLifetime: number
   powerupsUsed: number
   distanceLifetime: number
+  hazardsAvoided: number
+  laneChanges: number
+  nearMisses: number
+  mapsPlayed: MapId[]
+  achievements: Record<AchievementId, AchievementRecord>
 }
 
 export type SaveData = {
@@ -117,18 +156,8 @@ export type HudSnapshot = {
   multiplier: number
   powerups: ActivePowerUp[]
   readyLabel: string | null
-}
-
-export type RunResult = {
-  score: number
-  distance: number
-  energy: number
-  duration: number
-  orbs: number
-  powerupsUsed: number
-  isBestScore: boolean
-  isBestDistance: boolean
-  completedMissions: MissionId[]
+  hint: string | null
+  milestone: string | null
 }
 
 export type RunStats = {
@@ -138,11 +167,29 @@ export type RunStats = {
   duration: number
   orbs: number
   powerupsUsed: number
+  hazardsAvoided: number
+  laneChanges: number
+  nearMisses: number
+  mapId: MapId
+}
+
+export type RunResult = RunStats & {
+  isBestScore: boolean
+  isBestDistance: boolean
+  completedMissions: MissionId[]
+  xpEarned: number
+  levelBefore: number
+  levelAfter: number
+  previousBestDistance: number
+  unlockedAchievements: AchievementId[]
+  dailyCompleted: boolean
+  dailyTitle: string | null
+  streak: number
 }
 
 export type EngineHooks = {
   onHud: (hud: HudSnapshot) => void
-  onGameOver: (result: RunResult) => void
+  onGameOver: (result: RunStats) => void
   onState: (state: EngineState) => void
   onEnergy: (total: number, run: number) => void
   onMissionProgress: (missions: Record<MissionId, MissionRecord>) => void

@@ -14,7 +14,7 @@ export function MissionsScreen() {
       <div className="panel panel-wide">
         <p className="eyebrow">Contracts</p>
         <h1 className="title">Missions</h1>
-        <p className="subtitle">Objectives update from real runs, not placeholders.</p>
+        <p className="subtitle">Run, skill, and world contracts. Each completes once.</p>
         <div className="stack scroll" style={{ margin: '16px 0' }}>
           {(Object.keys(MISSIONS) as MissionId[]).map((id) => {
             const def = MISSIONS[id]
@@ -25,6 +25,9 @@ export function MissionsScreen() {
                   <h2 style={{ margin: 0, fontSize: 18 }}>{def.title}</h2>
                   <strong>{rec.completed ? 'Complete' : `+${def.reward} energy`}</strong>
                 </div>
+                <p className="map-tag" style={{ margin: '4px 0 6px' }}>
+                  {def.group === 'world' ? 'World' : def.group === 'skill' ? 'Skill' : 'Run'}
+                </p>
                 <p className="muted">{def.description}</p>
                 <ProgressBar value={rec.progress} max={def.target} />
                 <p className="muted">

@@ -16,6 +16,7 @@ export class Player {
   slideTimer = 0
   crashed = false
   invuln = 0
+  justLanded = false
   private runPhase = 0
   private rig: RunnerRig
   private runnerMats: RunnerMats
@@ -86,6 +87,7 @@ export class Player {
     this.slideTimer = 0
     this.crashed = false
     this.invuln = 0
+    this.justLanded = false
     this.runPhase = 0
     this.root.rotation.set(0, 0, 0)
     this.root.position.set(0, 0, 0)
@@ -102,14 +104,20 @@ export class Player {
     this.rig.rightKnee.rotation.set(0, 0, 0)
   }
 
-  moveLeft(): void {
-    if (this.crashed) return
-    this.lane = Math.max(0, this.lane - 1) as Lane
+  moveLeft(): boolean {
+    if (this.crashed) return false
+    const next = Math.max(0, this.lane - 1) as Lane
+    if (next === this.lane) return false
+    this.lane = next
+    return true
   }
 
-  moveRight(): void {
-    if (this.crashed) return
-    this.lane = Math.min(2, this.lane + 1) as Lane
+  moveRight(): boolean {
+    if (this.crashed) return false
+    const next = Math.min(2, this.lane + 1) as Lane
+    if (next === this.lane) return false
+    this.lane = next
+    return true
   }
 
   jump(): boolean {
@@ -134,6 +142,7 @@ export class Player {
     const targetX = LANES[this.lane]
     this.x = damp(this.x, targetX, PLAYER.laneLerp, dt)
 
+    this.justLanded = false
     if (!this.grounded) {
       this.vy += PLAYER.gravity * dt
       this.y += this.vy * dt
@@ -141,6 +150,7 @@ export class Player {
         this.y = 0
         this.vy = 0
         this.grounded = true
+        this.justLanded = true
       }
     }
 

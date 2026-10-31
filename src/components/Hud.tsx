@@ -53,6 +53,22 @@ export function Hud() {
         </button>
       </div>
       {hud.readyLabel ? <div className="ready-banner">{hud.readyLabel}</div> : null}
+      {hud.milestone ? <div className="hud-milestone">{hud.milestone}</div> : null}
+      {hud.hint ? (
+        <div className="hud-hint">
+          <p>{hud.hint}</p>
+          <button
+            type="button"
+            className="hint-skip"
+            onClick={() => {
+              getEngine()?.setTutorial(false)
+              useGameStore.getState().skipTutorial()
+            }}
+          >
+            Skip
+          </button>
+        </div>
+      ) : null}
       {hud.powerups.length > 0 ? (
         <div className="power-row">
           {hud.powerups.map((item) => (
