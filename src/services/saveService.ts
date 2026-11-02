@@ -1,8 +1,19 @@
 import { emptyAchievements } from '../game/achievements.ts'
 import { DEFAULT_SETTINGS, SAVE_KEY, SAVE_VERSION, SKINS } from '../game/config.ts'
-import { isMapId } from '../game/maps.ts'
+import { isMapId, type MapId } from '../game/maps.ts'
 import { emptyMissions } from '../game/missions.ts'
-import type { AchievementId, AchievementRecord, Profile, SaveData, Settings, SkinId, Statistics } from '../game/types.ts'
+import { emptyMapRecords, HISTORY_LIMIT } from '../game/records.ts'
+import type {
+  AchievementId,
+  AchievementRecord,
+  MapRecord,
+  Profile,
+  RunHistoryEntry,
+  SaveData,
+  Settings,
+  SkinId,
+  Statistics,
+} from '../game/types.ts'
 
 export function defaultProfile(): Profile {
   return {
@@ -45,6 +56,8 @@ export function defaultSave(): SaveData {
     unlockedSkins: ['pulse'],
     missions: emptyMissions(),
     statistics: defaultStatistics(),
+    mapRecords: emptyMapRecords(),
+    runHistory: [],
   }
 }
 
@@ -153,7 +166,44 @@ export function migrateSave(raw: unknown): SaveData {
       mapsPlayed: Array.from(new Set(mapsPlayed)),
       achievements: sanitizeAchievements(data.statistics?.achievements),
     },
+    mapRecords: sanitizeMapRecords(data.mapRecords),
+    runHistory: sanitizeHistory(data.runHistory),
   }
+}
+
+function sanitizeMapRecords(raw: unknown): Record<MapId, MapRecord> {
+  const next = emptyMapRecords()
+  if (!raw || typeof raw !== 'object') return next
+  const data = raw as Partial<Record<keyof typeof next, Partial<MapRecord>>>
+  for (const id of Object.keys(next) as Array<keyof typeof next>) {
+    const rec = data[id]
+    if (!rec) continue
+    next[id] = {
+      bestScore: nonNeg(rec.bestScore),
+      bestDistance: nonNeg(rec.bestDistance),
+      bestCombo: nonNeg(rec.bestCombo),
+      runs: nonNeg(rec.runs),
+    }
+  }
+  return next
+}
+
+function sanitizeHistory(raw: unknown): RunHistoryEntry[] {
+  if (!Array.isArray(raw)) return []
+  const out: RunHistoryEntry[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Partial<RunHistoryEntry>
+    if (!isMapId(row.mapId)) continue
+    out.push({
+      score: nonNeg(row.score),
+      distance: nonNeg(row.distance),
+      combo: nonNeg(row.combo),
+      mapId: row.mapId,
+      at: typeof row.at === 'string' ? row.at : '',
+    })
+  }
+  return out.sort((a, b) => b.score - a.score || b.distance - a.distance).slice(0, HISTORY_LIMIT)
 }
 
 export function loadSave(): SaveData {

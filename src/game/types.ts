@@ -76,6 +76,7 @@ export type MissionId =
   | 'emerald_orbs_30'
   | 'desert_1000'
   | 'frozen_avoid_20'
+  | 'combo_25_run'
 
 export type AchievementId =
   | 'first_run'
@@ -87,6 +88,9 @@ export type AchievementId =
   | 'map_explorer'
   | 'mission_master'
   | 'personal_best'
+  | 'combo_rush'
+  | 'combo_neon'
+  | 'godspeed'
 
 export type AchievementRecord = {
   unlocked: boolean
@@ -110,6 +114,21 @@ export type Statistics = {
   achievements: Record<AchievementId, AchievementRecord>
 }
 
+export type MapRecord = {
+  bestScore: number
+  bestDistance: number
+  bestCombo: number
+  runs: number
+}
+
+export type RunHistoryEntry = {
+  score: number
+  distance: number
+  combo: number
+  mapId: MapId
+  at: string
+}
+
 export type SaveData = {
   version: number
   settings: Settings
@@ -117,6 +136,8 @@ export type SaveData = {
   unlockedSkins: SkinId[]
   missions: Record<MissionId, MissionRecord>
   statistics: Statistics
+  mapRecords: Record<MapId, MapRecord>
+  runHistory: RunHistoryEntry[]
 }
 
 export type ObstacleType =
@@ -127,7 +148,7 @@ export type ObstacleType =
   | 'spinner'
   | 'gap'
 
-export type PowerUpType = 'shield' | 'magnet' | 'multiplier'
+export type PowerUpType = 'shield' | 'magnet' | 'multiplier' | 'turbo'
 
 export type PickupType = 'orb' | PowerUpType
 
@@ -155,6 +176,12 @@ export type HudSnapshot = {
   tier: string
   multiplier: number
   powerups: ActivePowerUp[]
+  boostCharge: number
+  boostActive: boolean
+  boostReady: boolean
+  combo: number
+  comboRank: string
+  comboTier: number
   readyLabel: string | null
   hint: string | null
   milestone: string | null
@@ -171,20 +198,36 @@ export type RunStats = {
   laneChanges: number
   nearMisses: number
   mapId: MapId
+  maxCombo: number
+  boostTime: number
+}
+
+export type NextGoalSnapshot = {
+  title: string
+  progress: number
+  target: number
 }
 
 export type RunResult = RunStats & {
   isBestScore: boolean
   isBestDistance: boolean
+  isMapBestScore: boolean
+  isMapBestDistance: boolean
+  isBestCombo: boolean
   completedMissions: MissionId[]
   xpEarned: number
   levelBefore: number
   levelAfter: number
   previousBestDistance: number
+  previousMapDistance: number
   unlockedAchievements: AchievementId[]
   dailyCompleted: boolean
   dailyTitle: string | null
   streak: number
+  styleRank: string
+  hallRank: number
+  mapStars: number
+  nextGoal: NextGoalSnapshot | null
 }
 
 export type EngineHooks = {

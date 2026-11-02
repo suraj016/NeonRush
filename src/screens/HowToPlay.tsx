@@ -3,10 +3,12 @@ import { useGameStore } from '../store/gameStore.ts'
 
 const items = [
   { title: 'Lane shift', body: 'A / Left or D / Right. Swipe sideways on mobile.' },
-  { title: 'Jump', body: 'W, Up, or Space. Swipe up to clear low barriers and gaps.' },
+  { title: 'Jump', body: 'W or Up. Tap Space quickly. Swipe up on mobile.' },
   { title: 'Slide', body: 'S or Down. Swipe down to pass under magenta laser gates.' },
-  { title: 'Energy', body: 'Collect cyan orbs for score and persistent energy.' },
-  { title: 'Power-ups', body: 'Shield absorbs one hit. Magnet pulls orbs. Multiplier doubles score.' },
+  { title: 'Boost', body: 'Hold Space (desktop) or the Boost button (mobile). Uses boost charge; coins restore +15%.' },
+  { title: 'Orbs', body: 'Collect cyan orbs for score and profile energy currency.' },
+  { title: 'Power-ups', body: 'Shield, Magnet, Score x2, and Turbo pickups. Each shows time left on the HUD.' },
+  { title: 'Style Combo', body: 'Chain orbs, near-misses, and lane changes. Ranks: RUSH, OVERCLOCK, NEON, GODSPEED. Idle too long and the chain fades.' },
   { title: 'Hazards', body: 'Never stay in a blocked lane. Moving amber walls change lanes.' },
 ]
 

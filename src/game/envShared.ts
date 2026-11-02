@@ -32,15 +32,30 @@ export function seedLayer(
   return data
 }
 
+export type ScrollLayer = {
+  mesh: THREE.InstancedMesh
+  data: InstanceData[]
+  wrap: number
+  parallax: number
+  homeZ: Float32Array
+}
+
+export function attachHome(data: InstanceData[]): Float32Array {
+  const home = new Float32Array(data.length)
+  for (let i = 0; i < data.length; i += 1) home[i] = data[i].z
+  return home
+}
+
+export function writeOne(mesh: THREE.InstancedMesh, item: InstanceData, dummy: THREE.Object3D, index: number): void {
+  dummy.position.set(item.x, item.y, item.z)
+  dummy.scale.set(item.sx, item.sy, item.sz)
+  dummy.rotation.set(0, item.rot, 0)
+  dummy.updateMatrix()
+  mesh.setMatrixAt(index, dummy.matrix)
+}
+
 export function writeInstances(mesh: THREE.InstancedMesh, data: InstanceData[], dummy: THREE.Object3D): void {
-  for (let i = 0; i < data.length; i += 1) {
-    const item = data[i]
-    dummy.position.set(item.x, item.y, item.z)
-    dummy.scale.set(item.sx, item.sy, item.sz)
-    dummy.rotation.set(0, item.rot, 0)
-    dummy.updateMatrix()
-    mesh.setMatrixAt(i, dummy.matrix)
-  }
+  for (let i = 0; i < data.length; i += 1) writeOne(mesh, data[i], dummy, i)
   mesh.instanceMatrix.needsUpdate = true
 }
 
@@ -49,6 +64,41 @@ export function scrollLayer(data: InstanceData[], moved: number, wrap: number, l
     data[i].z += moved
     if (data[i].z > limit) data[i].z -= wrap
   }
+}
+
+export function nextLocalZ(localZ: number, parentZ: number, wrap: number, limit = 28): number {
+  return localZ + parentZ > limit ? localZ - wrap : localZ
+}
+
+export function advanceLayer(layer: ScrollLayer, dummy: THREE.Object3D, moved: number, limit = 28): void {
+  const delta = moved * layer.parallax
+  if (delta === 0) return
+  layer.mesh.position.z += delta
+  let dirty = false
+  const parentZ = layer.mesh.position.z
+  for (let i = 0; i < layer.data.length; i += 1) {
+    const next = nextLocalZ(layer.data[i].z, parentZ, layer.wrap, limit)
+    if (next !== layer.data[i].z) {
+      layer.data[i].z = next
+      writeOne(layer.mesh, layer.data[i], dummy, i)
+      dirty = true
+    }
+  }
+  if (parentZ > layer.wrap) {
+    layer.mesh.position.z -= layer.wrap
+    for (let i = 0; i < layer.data.length; i += 1) {
+      layer.data[i].z += layer.wrap
+      writeOne(layer.mesh, layer.data[i], dummy, i)
+    }
+    dirty = true
+  }
+  if (dirty) layer.mesh.instanceMatrix.needsUpdate = true
+}
+
+export function resetScrollLayer(layer: ScrollLayer, dummy: THREE.Object3D): void {
+  layer.mesh.position.z = 0
+  for (let i = 0; i < layer.data.length; i += 1) layer.data[i].z = layer.homeZ[i]
+  writeInstances(layer.mesh, layer.data, dummy)
 }
 
 export function makePoints(count: number, color: number, size: number): THREE.Points {

@@ -23,6 +23,8 @@ export class Player {
   private shieldMesh: THREE.Mesh
   private trail: THREE.Mesh[]
   private trailMat: THREE.MeshBasicMaterial
+  private trailBoost = false
+  private trailTier = -1
 
   constructor(_materials: MaterialSet) {
     this.root = new THREE.Group()
@@ -102,6 +104,7 @@ export class Player {
     this.rig.rightHip.rotation.set(0, 0, 0)
     this.rig.leftKnee.rotation.set(0, 0, 0)
     this.rig.rightKnee.rotation.set(0, 0, 0)
+    this.setTrailStyle(false, 0)
   }
 
   moveLeft(): boolean {
@@ -138,7 +141,7 @@ export class Player {
     this.invuln = PLAYER.invulnDuration
   }
 
-  update(dt: number, speed: number, animate: boolean): void {
+  update(dt: number, speed: number, animate: boolean, running = false): void {
     const targetX = LANES[this.lane]
     this.x = damp(this.x, targetX, PLAYER.laneLerp, dt)
 
@@ -165,10 +168,14 @@ export class Player {
     this.root.position.y = this.y
     this.root.position.z = 0
 
-    if (!animate) return
-    this.animate(dt, speed)
+    if (!animate) {
+      for (let i = 0; i < this.trail.length; i += 1) this.trail[i].visible = false
+      return
+    }
+    if (running && !this.crashed) this.animateRun(dt, speed)
+    else this.animateIdle(dt)
     for (let i = 0; i < this.trail.length; i += 1) {
-      this.trail[i].visible = !this.crashed
+      this.trail[i].visible = running && !this.crashed
       this.trail[i].position.y = this.sliding ? 0.42 : 0.95
     }
   }
@@ -177,14 +184,60 @@ export class Player {
     this.shieldMesh.visible = on
   }
 
-  private animate(dt: number, speed: number): void {
+  setTrailStyle(boosting: boolean, tier: number): void {
+    const index = Math.max(0, Math.min(4, Math.floor(tier)))
+    if (this.trailBoost === boosting && this.trailTier === index) return
+    this.trailBoost = boosting
+    this.trailTier = index
+    const colors = [0x00cfff, 0x00f5a0, 0xa6ff4d, 0xffd166, 0xff6ad5]
+    this.trailMat.color.setHex(boosting && index === 0 ? 0x66e8ff : colors[index])
+    this.trailMat.opacity = boosting ? 0.52 : 0.16 + index * 0.07
+    for (let i = 0; i < this.trail.length; i += 1) {
+      const grow = 1 + index * 0.12
+      this.trail[i].scale.set((1 - i * 0.18) * grow, (1 - i * 0.15) * grow, 1 + index * 0.2)
+    }
+  }
+
+  private animateIdle(dt: number): void {
     const { body, helmet, leftShoulder, rightShoulder, leftElbow, rightElbow, leftHip, rightHip, leftKnee, rightKnee } =
       this.rig
 
     if (this.crashed) {
-      this.root.rotation.x = damp(this.root.rotation.x, -0.45, 10, dt)
-      this.root.rotation.z = damp(this.root.rotation.z, 0.32, 10, dt)
-      body.rotation.x = damp(body.rotation.x, 0.15, 8, dt)
+      this.animateCrash(dt)
+      return
+    }
+
+    this.runPhase = 0
+    this.root.rotation.x = damp(this.root.rotation.x, 0, 12, dt)
+    this.root.rotation.z = damp(this.root.rotation.z, 0, 10, dt)
+    body.position.y = damp(body.position.y, 0, 14, dt)
+    body.rotation.x = damp(body.rotation.x, 0.04, 10, dt)
+    body.rotation.y = damp(body.rotation.y, 0, 10, dt)
+    helmet.rotation.x = damp(helmet.rotation.x, 0, 10, dt)
+    leftHip.rotation.x = damp(leftHip.rotation.x, 0.06, 10, dt)
+    rightHip.rotation.x = damp(rightHip.rotation.x, -0.06, 10, dt)
+    leftKnee.rotation.x = damp(leftKnee.rotation.x, 0.1, 10, dt)
+    rightKnee.rotation.x = damp(rightKnee.rotation.x, 0.1, 10, dt)
+    leftShoulder.rotation.x = damp(leftShoulder.rotation.x, -0.04, 10, dt)
+    rightShoulder.rotation.x = damp(rightShoulder.rotation.x, -0.04, 10, dt)
+    leftElbow.rotation.x = damp(leftElbow.rotation.x, 0.35, 10, dt)
+    rightElbow.rotation.x = damp(rightElbow.rotation.x, 0.35, 10, dt)
+    this.root.position.y = this.y
+  }
+
+  private animateCrash(dt: number): void {
+    const { body } = this.rig
+    this.root.rotation.x = damp(this.root.rotation.x, -0.45, 10, dt)
+    this.root.rotation.z = damp(this.root.rotation.z, 0.32, 10, dt)
+    body.rotation.x = damp(body.rotation.x, 0.15, 8, dt)
+  }
+
+  private animateRun(dt: number, speed: number): void {
+    const { body, helmet, leftShoulder, rightShoulder, leftElbow, rightElbow, leftHip, rightHip, leftKnee, rightKnee } =
+      this.rig
+
+    if (this.crashed) {
+      this.animateCrash(dt)
       return
     }
 

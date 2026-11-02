@@ -23,6 +23,8 @@ import {
   makeFrozenOverhead,
   makeFrozenSpinner,
 } from './mapProps.ts'
+import { rollPowerUp } from './powerUps.ts'
+import { POWERUP } from './config.ts'
 import {
   createPropGeos,
   disposePropGeos,
@@ -36,6 +38,7 @@ import {
   makeOverhead,
   makeShield,
   makeSpinner,
+  makeTurbo,
   type PropGeos,
 } from './props.ts'
 
@@ -77,6 +80,7 @@ type Pools = {
   shield: THREE.Group[]
   magnet: THREE.Group[]
   multiplier: THREE.Group[]
+  turbo: THREE.Group[]
 }
 
 export class Spawner {
@@ -102,6 +106,7 @@ export class Spawner {
       shield: [],
       magnet: [],
       multiplier: [],
+      turbo: [],
     }
     this.materials = materials
     this.buildPools()
@@ -148,7 +153,7 @@ export class Spawner {
     }
   }
 
-  update(dt: number, playing: boolean): void {
+  update(dt: number, playing: boolean, lite = false): void {
     if (!playing) return
     for (const hazard of this.hazards) {
       if (!hazard.alive) continue
@@ -156,9 +161,9 @@ export class Spawner {
         hazard.phase += dt * 2.4
         const rotors = hazard.mesh.userData.spin as THREE.Object3D | undefined
         if (rotors) rotors.rotation.y += dt * 16
-        hazard.mesh.position.y = Math.sin(hazard.phase) * 0.07
+        if (!lite) hazard.mesh.position.y = Math.sin(hazard.phase) * 0.07
       }
-      if (hazard.type === 'overhead') {
+      if (hazard.type === 'overhead' && !lite) {
         hazard.phase += dt * 4
         const beam = hazard.mesh.userData.beam as THREE.Object3D | undefined
         if (beam) beam.scale.z = 1 + Math.sin(hazard.phase) * 0.12
@@ -170,6 +175,7 @@ export class Spawner {
         hazard.mesh.position.x = x
       }
     }
+    if (lite) return
     for (const pickup of this.pickups) {
       if (!pickup.alive) continue
       pickup.bob += dt * 3
@@ -285,9 +291,10 @@ export class Spawner {
       }
     }
 
-    if (rng.chance(0.07 + difficulty.tierIndex * 0.03)) {
+    const spawnChance = POWERUP.spawnChanceBase + difficulty.tierIndex * POWERUP.spawnChanceTierBonus
+    if (rng.chance(spawnChance)) {
       const lane = rng.pick(safe.length ? safe : ([1] as Lane[]))
-      const type = rng.pick(['shield', 'magnet', 'multiplier'] as const)
+      const type = rollPowerUp(rng)
       this.addPickup(segment, type, lane, localZ - 3)
     }
   }
@@ -457,6 +464,7 @@ export class Spawner {
     this.pools.shield = []
     this.pools.magnet = []
     this.pools.multiplier = []
+    this.pools.turbo = []
   }
 
   private makeProp(type: ObstacleType | PickupType): THREE.Group {
@@ -465,6 +473,7 @@ export class Spawner {
     if (type === 'shield') return makeShield(geos, mats)
     if (type === 'magnet') return makeMagnet(geos, mats)
     if (type === 'multiplier') return makeMultiplier(geos, mats)
+    if (type === 'turbo') return makeTurbo(geos, mats)
     if (this.mapId === 'desert') {
       if (type === 'orb') return makeDesertOrb(geos, mats)
       if (type === 'barrier') return makeDesertBarrier(geos, mats)
@@ -507,5 +516,6 @@ export class Spawner {
     fill('shield', 6)
     fill('magnet', 6)
     fill('multiplier', 6)
+    fill('turbo', 6)
   }
 }

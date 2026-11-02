@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { Button } from '../components/Button.tsx'
 import { getEngine } from '../game/bridge.ts'
 import { MAP_ORDER, MAPS, type MapId } from '../game/maps.ts'
+import { mapStars, starLabel } from '../game/records.ts'
 import { Screens } from '../game/types.ts'
 import { useGameStore } from '../store/gameStore.ts'
 
@@ -47,6 +48,7 @@ function MapPreview({ id }: { id: MapId }) {
 
 export function MapsScreen() {
   const selected = useGameStore((s) => s.profile.selectedMap)
+  const mapRecords = useGameStore((s) => s.mapRecords)
   const selectMap = useGameStore((s) => s.selectMap)
   const setScreen = useGameStore((s) => s.setScreen)
 
@@ -80,7 +82,13 @@ export function MapsScreen() {
                 <MapPreview id={id} />
                 <p className="map-tag">{map.tagline}</p>
                 <h2>{map.name}</h2>
+                <p className="map-stars">{starLabel(mapStars(mapRecords[id]?.bestDistance ?? 0))}</p>
                 <p className="muted">{map.description}</p>
+                <p className="muted">
+                  Best {Math.floor(mapRecords[id]?.bestDistance ?? 0)}m
+                  {mapRecords[id]?.bestScore ? ` · ${mapRecords[id].bestScore.toLocaleString()} pts` : ''}
+                  {mapRecords[id]?.bestCombo ? ` · combo ${mapRecords[id].bestCombo}` : ''}
+                </p>
                 <div className="map-actions">
                   <Button variant={active ? 'primary' : 'secondary'} onClick={() => choose(id)}>
                     {active ? 'Selected' : 'Select'}

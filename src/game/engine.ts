@@ -4,7 +4,19 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
-import { POWERUP } from './config.ts'
+import { BOOST, POWERUP } from './config.ts'
+import { combinedSpeedMultiplier, rechargeBoost, tickBoostEnergy } from './boost.ts'
+import {
+  COMBO,
+  comboFxLabel,
+  comboRank,
+  comboTierIndex,
+  emptyCombo,
+  hitCombo,
+  tickCombo,
+  type ComboState,
+} from './combo.ts'
+import { powerUpDuration, powerUpFxLabel } from './powerUps.ts'
 import { AudioManager } from './audio.ts'
 import { writePlayerAABB, isFatalHit, collectOverlap } from './collision.ts'
 import { evaluateDifficulty } from './difficulty.ts'
@@ -63,7 +75,14 @@ export class GameEngine {
   private orbs = 0
   private duration = 0
   private powerupsUsed = 0
-  private powerups: Record<PowerUpType, number> = { shield: 0, magnet: 0, multiplier: 0 }
+  private powerups: Record<PowerUpType, number> = { shield: 0, magnet: 0, multiplier: 0, turbo: 0 }
+  private boostCharge: number = BOOST.startCharge
+  private boostBlend = 0
+  private boostTime = 0
+  private wasBoosting = false
+  private combo: ComboState = emptyCombo()
+  private baseFov = 56
+  private fovPulse = 0
   private disposed = false
   private canvas: HTMLCanvasElement
   private skin: SkinId
@@ -83,10 +102,25 @@ export class GameEngine {
   private fps = 60
   private fpsLow = 0
   private autoDropped = false
+  private liteFx = false
+  private lastFov = 56
   private mobile = false
   private pausedDrawn = false
   private playerBox = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 }
-  private lastHud = { score: -1, distance: -1, energy: -1, speed: -1, ready: '' as string | null, hint: '' as string | null, milestone: '' as string | null }
+  private lastHud = {
+    score: -1,
+    distance: -1,
+    energy: -1,
+    speed: -1,
+    boostCharge: -1,
+    boostActive: false,
+    boostReady: false,
+    combo: -1,
+    comboRank: '',
+    ready: '' as string | null,
+    hint: '' as string | null,
+    milestone: '' as string | null,
+  }
   private hazardsAvoided = 0
   private laneChanges = 0
   private nearMisses = 0
@@ -106,26 +140,24 @@ export class GameEngine {
     this.mobile = this.detectMobile()
     const renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: settings.quality === 'high' && !this.mobile,
+      antialias: false,
       alpha: false,
       stencil: false,
+      depth: true,
       powerPreference: 'high-performance',
     })
+    renderer.debug.checkShaderErrors = false
     renderer.setPixelRatio(this.pixelRatio(settings.quality))
     renderer.setClearColor(0x102923, 1)
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.28
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.toneMappingExposure = 1
+    renderer.shadowMap.enabled = false
     this.renderer = renderer
 
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 320)
+    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 280)
     this.camera.position.set(0, 3.35, 8.1)
-
-    this.pmrem = new THREE.PMREMGenerator(renderer)
-    this.envMap = this.pmrem.fromScene(new RoomEnvironment(), 0.03).texture
-    this.scene.environment = this.envMap
-    this.scene.environmentIntensity = 0.42
 
     this.materials = createMaterials()
     this.player = new Player(this.materials)
@@ -147,7 +179,7 @@ export class GameEngine {
     this.scene.add(this.track.root, this.world.root, this.player.root)
     this.addLights()
     this.applyMap('emerald')
-    this.setupComposer(this.shouldBloom())
+    this.applyVisualBudget()
     this.resize()
     window.addEventListener('resize', this.onResize)
     window.visualViewport?.addEventListener('resize', this.onResize)
@@ -202,7 +234,7 @@ export class GameEngine {
     this.audio.applySettings(settings)
     this.world.setQuality(this.worldQuality(settings.quality), settings.reducedMotion)
     this.renderer.setPixelRatio(this.pixelRatio(settings.quality))
-    this.setupComposer(this.shouldBloom())
+    this.applyVisualBudget()
     this.resize()
   }
 
@@ -222,10 +254,16 @@ export class GameEngine {
     this.spawner.setMap(id)
     this.applyMapLights(id)
     this.renderer.setClearColor(id === 'desert' ? 0xe8d4b0 : id === 'frozen' ? 0xd5e3ea : 0x102923, 1)
-    this.renderer.toneMappingExposure = id === 'desert' ? 1.08 : id === 'frozen' ? 1.06 : 1.28
-    this.scene.environmentIntensity = id === 'emerald' ? 0.42 : 0.16
-    this.setupComposer(this.shouldBloom())
+    this.applyVisualBudget()
     if (this.state === EngineStates.MainMenu) this.seedMenu()
+  }
+
+  setMobileBoostHeld(held: boolean): void {
+    if (this.state !== EngineStates.Playing) {
+      this.input.setMobileBoostHeld(false)
+      return
+    }
+    this.input.setMobileBoostHeld(held)
   }
 
   play(): void {
@@ -239,6 +277,9 @@ export class GameEngine {
 
   pause(): void {
     if (this.state !== EngineStates.Playing) return
+    this.input.resetBoostState()
+    this.boostBlend = 0
+    this.wasBoosting = false
     this.setState(EngineStates.Paused)
   }
 
@@ -274,7 +315,7 @@ export class GameEngine {
       this.menuT += dt
       this.world.update(dt, dt * 5.5, 120, true)
       this.track.update(dt)
-      this.player.update(dt, 12, !this.settings.reducedMotion)
+      this.player.update(dt, 0, !this.settings.reducedMotion, false)
       this.updateCamera(dt, true)
       this.render()
       return
@@ -282,7 +323,7 @@ export class GameEngine {
 
     if (this.state === EngineStates.Ready) {
       this.readyTimer -= dt
-      this.player.update(dt, 0, true)
+      this.player.update(dt, 0, !this.settings.reducedMotion, false)
       this.updateCamera(dt, false)
       this.hudAcc += dt
       if (this.hudAcc >= 0.12) {
@@ -304,7 +345,7 @@ export class GameEngine {
     this.pausedDrawn = false
 
     if (this.state === EngineStates.GameOver) {
-      this.player.update(dt, 0, true)
+      this.player.update(dt, 0, !this.settings.reducedMotion, false)
       this.shake = damp(this.shake, 0, 6, dt)
       this.updateCamera(dt, false)
       this.overTimer -= dt
@@ -322,17 +363,33 @@ export class GameEngine {
       return
     }
 
+    if (this.input.consumeJump() && this.player.jump()) this.audio.play('jump')
+
     const difficulty = evaluateDifficulty(this.distance)
-    const moved = difficulty.speed * dt
+    const turboActive = this.powerups.turbo > 0
+    const wantBoost = this.input.isManualBoostHeld() && this.boostCharge > 0
+    const boosted = tickBoostEnergy({ charge: this.boostCharge, blend: this.boostBlend }, dt, wantBoost)
+    this.boostCharge = boosted.charge
+    this.boostBlend = boosted.blend
+    const speedMul = combinedSpeedMultiplier(this.boostBlend, turboActive)
+    const runSpeed = difficulty.speed * speedMul
+    const moved = runSpeed * dt
     this.distance += moved
     this.duration += dt
     const mul = this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1
     this.score += distanceScore(moved, mul)
 
     this.tickPowerups(dt)
-    this.player.update(dt, difficulty.speed, !this.settings.reducedMotion)
+    this.combo = tickCombo(this.combo, dt)
+    const boosting = this.boostBlend > 0.08 || turboActive
+    if (boosting) this.boostTime += dt
+    if (boosting && !this.wasBoosting) this.audio.play('boost')
+    this.wasBoosting = boosting
+    this.player.update(dt, runSpeed, !this.settings.reducedMotion, true)
     if (this.player.justLanded) this.audio.play('land')
     this.player.setShieldVisible(this.powerups.shield > 0)
+    this.player.setTrailStyle(boosting, comboTierIndex(this.combo.value))
+    this.tickBoostFov(dt, turboActive)
     this.tickMilestones(dt, mul)
     if (this.nearCool > 0) this.nearCool = Math.max(0, this.nearCool - dt)
 
@@ -343,7 +400,7 @@ export class GameEngine {
       this.spawner.populate(segment, this.distance, this.rng, difficulty, safe)
     }
 
-    this.spawner.update(dt, true)
+    this.spawner.update(dt, true, this.liteFx)
     this.fx.update(dt)
     this.track.update(dt)
     this.world.update(dt, moved, this.distance, true)
@@ -353,7 +410,7 @@ export class GameEngine {
     this.shake = damp(this.shake, 0, 8, dt)
     this.updateCamera(dt, false)
     this.hudAcc += dt
-    if (this.hudAcc >= 0.2) {
+    if (this.hudAcc >= (this.liteFx ? 0.28 : 0.2)) {
       this.hudAcc = 0
       this.pushHud(null)
     }
@@ -378,13 +435,15 @@ export class GameEngine {
         this.score += gained
         this.energy += 1
         this.orbs += 1
+        this.boostCharge = rechargeBoost(this.boostCharge, BOOST.orbRecharge)
         this.hooks.onEnergy(this.energy, this.energy)
         this.audio.play('orb')
-        this.spawnCollectFx(pickup, `+${gained}`)
+        this.spawnCollectFx(pickup, `+${BOOST.orbRecharge}`)
+        this.applyCombo(COMBO.orb)
       } else {
-        const mul = this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1
-        this.spawnCollectFx(pickup, `+${powerupScore(mul)}`)
+        this.spawnCollectFx(pickup, powerUpFxLabel(pickup.type))
         this.activatePower(pickup.type)
+        this.applyCombo(COMBO.power)
       }
       this.spawner.collect(pickup)
     }
@@ -421,6 +480,10 @@ export class GameEngine {
   }
 
   private crash(): void {
+    this.input.resetBoostState()
+    this.boostBlend = 0
+    this.wasBoosting = false
+    this.combo = { ...this.combo, value: 0, idle: 0 }
     this.player.crashed = true
     this.audio.play('crash')
     if (this.canShake()) this.shake = 0.55
@@ -428,11 +491,35 @@ export class GameEngine {
     this.setState(EngineStates.GameOver)
   }
 
+  private applyCombo(amount: number): void {
+    const next = hitCombo(this.combo, amount)
+    this.combo = next.state
+    this.score += next.bonus
+    if (next.tierUp) {
+      this.audio.play('combo')
+      this.milestoneLabel = comboRank(this.combo.value)
+      this.milestoneTimer = 1.35
+      if (!this.settings.reducedMotion && !this.liteFx) {
+        this.fx.spawn(this.player.x, 1.45, 0.15, comboFxLabel(this.combo.value))
+      }
+      if (this.mobile && typeof navigator.vibrate === 'function') navigator.vibrate(16)
+    }
+    this.pushHud(null)
+  }
+
+  private registerLaneChange(): void {
+    this.laneChanges += 1
+    if (this.combo.laneCool > 0) return
+    this.applyCombo(COMBO.lane)
+    this.combo = { ...this.combo, laneCool: COMBO.laneCooldown }
+  }
+
   private activatePower(type: PowerUpType): void {
-    this.powerups[type] = POWERUP[type]
+    this.powerups[type] = powerUpDuration(type)
     this.powerupsUsed += 1
     this.score += powerupScore(this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1)
     this.audio.play('power')
+    if (type === 'turbo') this.audio.play('start')
   }
 
   private tickPowerups(dt: number): void {
@@ -451,8 +538,8 @@ export class GameEngine {
       return
     }
     if (this.state !== EngineStates.Playing && this.state !== EngineStates.Ready) return
-    if (action === 'left' && this.player.moveLeft() && this.state === EngineStates.Playing) this.laneChanges += 1
-    if (action === 'right' && this.player.moveRight() && this.state === EngineStates.Playing) this.laneChanges += 1
+    if (action === 'left' && this.player.moveLeft() && this.state === EngineStates.Playing) this.registerLaneChange()
+    if (action === 'right' && this.player.moveRight() && this.state === EngineStates.Playing) this.registerLaneChange()
     if (this.state !== EngineStates.Playing) return
     if (action === 'jump' && this.player.jump()) this.audio.play('jump')
     if (action === 'slide' && this.player.slide()) this.audio.play('slide')
@@ -473,7 +560,14 @@ export class GameEngine {
     this.milestoneLabel = null
     this.milestoneTimer = 0
     this.nextMilestone = 0
-    this.powerups = { shield: 0, magnet: 0, multiplier: 0 }
+    this.powerups = { shield: 0, magnet: 0, multiplier: 0, turbo: 0 }
+    this.boostCharge = BOOST.startCharge
+    this.boostBlend = 0
+    this.boostTime = 0
+    this.wasBoosting = false
+    this.combo = emptyCombo()
+    this.fovPulse = 0
+    this.input.resetBoostState()
     this.shake = 0
     this.overTimer = 0
     this.player.reset()
@@ -520,6 +614,24 @@ export class GameEngine {
     const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0
     this.camera.position.set(this.camX + sx, this.camY + sy, this.camera.aspect < 0.75 ? 9.1 : 8.15)
     this.camera.lookAt(this.player.x * 0.32, 1.55 + this.player.y * 0.1, -12)
+    if (!this.settings.reducedMotion && !menu) {
+      const targetFov = this.baseFov + this.fovPulse
+      const nextFov = damp(this.camera.fov, targetFov, 8, dt)
+      if (Math.abs(nextFov - this.lastFov) > 0.08) {
+        this.camera.fov = nextFov
+        this.lastFov = nextFov
+        this.camera.updateProjectionMatrix()
+      }
+    }
+  }
+
+  private tickBoostFov(dt: number, turboActive: boolean): void {
+    if (this.settings.reducedMotion) {
+      this.fovPulse = 0
+      return
+    }
+    const target = (this.boostBlend > 0.08 || turboActive ? BOOST.fovDegrees : 0) * (this.boostBlend || (turboActive ? 1 : 0))
+    this.fovPulse = damp(this.fovPulse, target, 6, dt)
   }
 
   private pushHud(ready: string | null): void {
@@ -528,14 +640,25 @@ export class GameEngine {
     for (const type of Object.keys(this.powerups) as PowerUpType[]) {
       if (this.powerups[type] > 0) powerups.push({ type, remaining: this.powerups[type] })
     }
+    const turboActive = this.powerups.turbo > 0
+    const speedMul = combinedSpeedMultiplier(this.boostBlend, turboActive)
+    const displaySpeed = difficulty.speed * speedMul
+    const boostActive = this.boostBlend > 0.08 || turboActive
+    const boostReady = this.boostCharge >= BOOST.chargeMax * 0.2
     const hud: HudSnapshot = {
       score: Math.floor(this.score),
       distance: Math.floor(this.distance),
       energy: this.energy,
-      speed: difficulty.speed,
+      speed: displaySpeed,
       tier: difficulty.tier,
       multiplier: this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1,
       powerups,
+      boostCharge: Math.floor(this.boostCharge),
+      boostActive,
+      boostReady,
+      combo: Math.floor(this.combo.value),
+      comboRank: comboRank(this.combo.value),
+      comboTier: comboTierIndex(this.combo.value),
       readyLabel: ready,
       hint: this.tutorialHint(),
       milestone: this.milestoneLabel,
@@ -545,6 +668,11 @@ export class GameEngine {
       this.lastHud.distance === hud.distance &&
       this.lastHud.energy === hud.energy &&
       this.lastHud.speed === Math.floor(hud.speed) &&
+      this.lastHud.boostCharge === hud.boostCharge &&
+      this.lastHud.boostActive === hud.boostActive &&
+      this.lastHud.boostReady === hud.boostReady &&
+      this.lastHud.combo === hud.combo &&
+      this.lastHud.comboRank === hud.comboRank &&
       this.lastHud.ready === hud.readyLabel &&
       this.lastHud.hint === hud.hint &&
       this.lastHud.milestone === hud.milestone
@@ -555,6 +683,11 @@ export class GameEngine {
     this.lastHud.distance = hud.distance
     this.lastHud.energy = hud.energy
     this.lastHud.speed = Math.floor(hud.speed)
+    this.lastHud.boostCharge = hud.boostCharge
+    this.lastHud.boostActive = hud.boostActive
+    this.lastHud.boostReady = hud.boostReady
+    this.lastHud.combo = hud.combo
+    this.lastHud.comboRank = hud.comboRank
     this.lastHud.ready = hud.readyLabel
     this.lastHud.hint = hud.hint
     this.lastHud.milestone = hud.milestone
@@ -573,6 +706,8 @@ export class GameEngine {
       laneChanges: this.laneChanges,
       nearMisses: this.nearMisses,
       mapId: this.mapId,
+      maxCombo: Math.floor(this.combo.max),
+      boostTime: this.boostTime,
     }
   }
 
@@ -581,7 +716,8 @@ export class GameEngine {
     if (this.duration < 4) return 'A / D or swipe to change lanes'
     if (this.duration < 8) return 'W or swipe up to jump'
     if (this.duration < 12) return 'S or swipe down to slide'
-    if (this.duration < 16) return 'Collect energy coins'
+    if (this.duration < 16) return 'Collect coins · hold Space to boost'
+    if (this.duration < 20) return 'Chain orbs and near-misses for Style Combo'
     return null
   }
 
@@ -593,6 +729,7 @@ export class GameEngine {
       this.milestoneTimer = 2.4
       this.score += milestoneScore(mul)
       this.audio.play('milestone')
+      this.applyCombo(COMBO.milestone)
       this.pushHud(null)
     }
     if (this.milestoneTimer > 0) {
@@ -613,6 +750,7 @@ export class GameEngine {
           hazard.nearMissed = true
           this.nearMisses += 1
           this.score += nearMissScore(this.powerups.multiplier > 0 ? POWERUP.scoreMul : 1)
+          this.applyCombo(COMBO.near)
           if (this.nearCool <= 0) {
             this.audio.play('near')
             this.nearCool = 0.28
@@ -695,14 +833,28 @@ export class GameEngine {
     this.rim.position.set(5, 4, -6)
   }
 
-  private shouldBloom(): boolean {
-    return (
-      this.mapId === 'emerald' &&
-      this.settings.quality === 'high' &&
-      !this.settings.reducedMotion &&
-      !this.mobile &&
-      !this.autoDropped
-    )
+  private richVisuals(): boolean {
+    return this.settings.quality === 'high' && !this.mobile && !this.settings.reducedMotion && !this.autoDropped
+  }
+
+  private ensureEnv(): void {
+    if (this.envMap || !this.richVisuals()) return
+    this.pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.envMap = this.pmrem.fromScene(new RoomEnvironment(), 0.03).texture
+  }
+
+  private applyVisualBudget(): void {
+    const rich = this.richVisuals()
+    this.liteFx = !rich
+    this.ensureEnv()
+    this.renderer.toneMapping = rich ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping
+    const mapExp = this.mapId === 'desert' ? 1.08 : this.mapId === 'frozen' ? 1.06 : 1.28
+    this.renderer.toneMappingExposure = rich ? mapExp : 1
+    this.scene.environment = rich ? this.envMap : null
+    this.scene.environmentIntensity = rich ? (this.mapId === 'emerald' ? 0.42 : 0.16) : 0
+    this.fill.visible = rich
+    this.rim.visible = rich
+    this.setupComposer(false)
   }
 
   private disposeComposer(): void {
@@ -732,15 +884,18 @@ export class GameEngine {
     this.fps = this.frames / this.fpsAcc
     this.frames = 0
     this.fpsAcc = 0
-    if (this.fps < (this.mobile ? 48 : 44)) this.fpsLow += 1
+    if (this.fps < (this.mobile ? 54 : 50)) this.fpsLow += 1
     else this.fpsLow = 0
-    if (this.fpsLow >= (this.mobile ? 2 : 4) && !this.autoDropped) {
+    if (this.fpsLow >= 2 && !this.autoDropped) {
       this.autoDropped = true
-      this.disposeComposer()
-      this.renderer.setPixelRatio(Math.min(this.pixelRatio('low'), 1))
-      this.world.setQuality('low', this.settings.reducedMotion)
+      this.renderer.setPixelRatio(1)
+      this.world.setQuality('low', true)
+      this.applyVisualBudget()
     }
-    ;(window as unknown as { __neonPerf?: { fps: number } }).__neonPerf = { fps: Math.round(this.fps) }
+    ;(window as unknown as { __neonPerf?: { fps: number; calls: number } }).__neonPerf = {
+      fps: Math.round(this.fps),
+      calls: this.renderer.info.render.calls,
+    }
   }
 
   private render(): void {
@@ -756,7 +911,8 @@ export class GameEngine {
     this.composer?.setSize(width, height)
     this.bloomPass?.resolution.set(width, height)
     this.camera.aspect = width / height
-    this.camera.fov = this.camera.aspect < 0.7 ? 68 : this.camera.aspect < 1 ? 62 : 56
+    this.baseFov = this.camera.aspect < 0.7 ? 68 : this.camera.aspect < 1 ? 62 : 56
+    this.camera.fov = this.baseFov + this.fovPulse
     this.camera.updateProjectionMatrix()
   }
 
@@ -770,16 +926,13 @@ export class GameEngine {
 
   private pixelRatio(quality: Quality): number {
     const dpr = window.devicePixelRatio || 1
-    if (this.mobile) {
-      const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.08 : 1.15
-      return Math.min(dpr, cap)
-    }
-    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.15 : 1.5
+    if (this.mobile || this.autoDropped) return Math.min(dpr, 1)
+    const cap = quality === 'low' ? 1 : quality === 'medium' ? 1.05 : 1.2
     return Math.min(dpr, cap)
   }
 
   private worldQuality(quality: Quality): Quality {
-    if (this.mobile && quality === 'high') return 'medium'
+    if (this.mobile) return quality === 'low' ? 'low' : 'medium'
     return quality
   }
 

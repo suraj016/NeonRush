@@ -6,13 +6,17 @@ import { useGameStore } from '../store/gameStore.ts'
 export function PauseScreen() {
   const setScreen = useGameStore((s) => s.setScreen)
   const openOverlay = useGameStore((s) => s.openOverlay)
+  const hud = useGameStore((s) => s.hud)
 
   return (
     <div className="screen screen-center overlay">
       <div className="panel">
         <p className="eyebrow">Halted</p>
         <h1 className="title">Paused</h1>
-        <p className="subtitle">The city is frozen. Resume when you are ready.</p>
+        <p className="subtitle">
+          {hud.score.toLocaleString()} pts · {hud.distance}m
+          {hud.combo > 0 ? ` · ${hud.comboRank} x${hud.combo}` : ''}
+        </p>
         <div className="stack" style={{ marginTop: 18 }}>
           <Button
             variant="primary"

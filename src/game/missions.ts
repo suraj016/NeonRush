@@ -32,6 +32,8 @@ export function runStatValue(
       return run.hazardsAvoided
     case 'laneChanges':
       return run.laneChanges
+    case 'maxCombo':
+      return run.maxCombo
     default:
       return 0
   }

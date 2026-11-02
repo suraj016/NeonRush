@@ -1,6 +1,16 @@
 import * as THREE from 'three'
 import { createFrozenGeos } from './frozenGeo.ts'
-import { makePoints, scrollLayer, seedLayer, writeInstances, type EnvPack, type InstanceData } from './envShared.ts'
+import {
+  advanceLayer,
+  attachHome,
+  makePoints,
+  resetScrollLayer,
+  seedLayer,
+  writeInstances,
+  type EnvPack,
+  type InstanceData,
+  type ScrollLayer,
+} from './envShared.ts'
 import type { MaterialSet } from './materials.ts'
 import type { Quality } from './types.ts'
 
@@ -42,7 +52,7 @@ export function createFrozenEnv(materials: MaterialSet, quality: Quality): EnvPa
   floorR.position.x = 46
   root.add(floorL, floorR)
 
-  const layerList: { mesh: THREE.InstancedMesh; data: InstanceData[]; wrap: number; parallax: number }[] = []
+  const layerList: ScrollLayer[] = []
 
   const addLayer = (
     geo: THREE.BufferGeometry,
@@ -52,11 +62,10 @@ export function createFrozenEnv(materials: MaterialSet, quality: Quality): EnvPa
     parallax: number,
   ) => {
     const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, data.length))
-    mesh.frustumCulled = false
     writeInstances(mesh, data, dummy)
     root.add(mesh)
     meshes.push(mesh)
-    layerList.push({ mesh, data, wrap, parallax })
+    layerList.push({ mesh, data, wrap, parallax, homeZ: attachHome(data) })
   }
 
   const low = quality === 'low'
@@ -348,7 +357,7 @@ export function createFrozenEnv(materials: MaterialSet, quality: Quality): EnvPa
     1,
   )
 
-  const snowCount = quality === 'low' ? 0 : quality === 'high' ? 70 : 36
+  const snowCount = quality === 'high' ? 20 : 0
   const snow = makePoints(snowCount, 0xedf3f5, 0.05)
   extras.push(snow.geometry)
   snow.visible = snowCount > 0
@@ -366,29 +375,18 @@ export function createFrozenEnv(materials: MaterialSet, quality: Quality): EnvPa
     },
     reset() {
       sky.rotation.y = 0
+      snow.position.z = 0
+      for (const layer of layerList) resetScrollLayer(layer, dummy)
     },
     update(dt, moved, distance, playing) {
       sky.rotation.y += dt * 0.002
       floorL.position.z = -90 + ((distance * 0.12) % 20)
       floorR.position.z = floorL.position.z
-      for (const layer of layerList) {
-        scrollLayer(layer.data, moved * layer.parallax, layer.wrap)
-        writeInstances(layer.mesh, layer.data, dummy)
-      }
+      for (const layer of layerList) advanceLayer(layer, dummy, moved)
       if (snow.visible && playing && !reduced) {
-        const pos = snow.geometry.attributes.position
-        const array = pos.array as Float32Array
-        for (let i = 0; i < array.length; i += 3) {
-          array[i] += dt * 0.55
-          array[i + 1] -= dt * 2.6
-          array[i + 2] += moved * 0.85
-          if (array[i + 1] < 0.2 || array[i + 2] > 12) {
-            array[i] = (Math.random() - 0.5) * 20
-            array[i + 1] = 8 + Math.random() * 10
-            array[i + 2] = -70 - Math.random() * 70
-          }
-        }
-        pos.needsUpdate = true
+        snow.position.z += moved * 0.85
+        snow.position.y = Math.sin(distance * 0.02) * 0.2
+        if (snow.position.z > 80) snow.position.z -= 80
       }
     },
     dispose() {

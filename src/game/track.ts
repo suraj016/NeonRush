@@ -28,7 +28,7 @@ export class TrackManager {
     const railGeo = new THREE.BoxGeometry(0.18, 0.42, SEGMENT_LENGTH)
     const glowGeo = new THREE.BoxGeometry(0.12, 0.1, SEGMENT_LENGTH)
     const underGlowGeo = new THREE.BoxGeometry(0.22, 0.06, SEGMENT_LENGTH)
-    const dashGeo = new THREE.BoxGeometry(0.1, 0.04, 1.35)
+    const dashGeo = new THREE.BoxGeometry(0.08, 0.03, SEGMENT_LENGTH * 0.88)
     const pitGeo = new THREE.BoxGeometry(9.2, 2.2, SEGMENT_LENGTH)
     const poleGeo = new THREE.CylinderGeometry(0.05, 0.07, 2.4, 6)
     const lampGeo = new THREE.SphereGeometry(0.07, 8, 8)
@@ -85,39 +85,23 @@ export class TrackManager {
       rightGlow.position.x = 4.25
       group.add(leftGlow, rightGlow)
 
-      const leftUnder = new THREE.Mesh(underGlowGeo, materials.glowBlue)
-      leftUnder.position.set(-4.45, 0.02, 0)
-      role(leftUnder, 'under')
-      const rightUnder = leftUnder.clone()
-      rightUnder.position.x = 4.45
-      group.add(leftUnder, rightUnder)
-
-      const innerLeft = new THREE.Mesh(glowGeo, materials.glowCyan)
-      innerLeft.position.set(-1.175, 0.12, 0)
-      innerLeft.scale.set(0.35, 0.45, 1)
-      role(innerLeft, 'inner')
-      const innerRight = innerLeft.clone()
-      innerRight.position.x = 1.175
-      group.add(innerLeft, innerRight)
-
       for (const divider of [-1.175, 1.175]) {
-        for (let d = 0; d < 5; d += 1) {
-          const dash = new THREE.Mesh(dashGeo, materials.glowBlue)
-          dash.position.set(divider, 0.15, -SEGMENT_LENGTH / 2 + 2.4 + d * 4.0)
-          dash.userData.dash = true
-          role(dash, 'dash')
-          group.add(dash)
-        }
+        const dash = new THREE.Mesh(dashGeo, materials.glowBlue)
+        dash.position.set(divider, 0.14, 0)
+        role(dash, 'dash')
+        group.add(dash)
       }
 
-      for (const side of [-1, 1]) {
-        const pole = new THREE.Mesh(poleGeo, materials.metal)
-        pole.position.set(side * 4.7, 1.2, -SEGMENT_LENGTH * 0.18)
-        role(pole, 'pole')
-        const lamp = new THREE.Mesh(lampGeo, materials.lamp)
-        lamp.position.set(side * 4.55, 2.42, -SEGMENT_LENGTH * 0.18)
-        role(lamp, 'lamp')
-        group.add(pole, lamp)
+      if (i % 2 === 0) {
+        for (const side of [-1, 1]) {
+          const pole = new THREE.Mesh(poleGeo, materials.metal)
+          pole.position.set(side * 4.7, 1.2, -SEGMENT_LENGTH * 0.18)
+          role(pole, 'pole')
+          const lamp = new THREE.Mesh(lampGeo, materials.lamp)
+          lamp.position.set(side * 4.55, 2.42, -SEGMENT_LENGTH * 0.18)
+          role(lamp, 'lamp')
+          group.add(pole, lamp)
+        }
       }
 
       if (i % 3 === 0) {
@@ -155,15 +139,8 @@ export class TrackManager {
     }
   }
 
-  update(dt: number): void {
-    for (const segment of this.segments) {
-      for (const child of segment.group.children) {
-        if (!child.userData.dash) continue
-        child.position.z += dt * 8
-        const limit = SEGMENT_LENGTH / 2 - 0.8
-        if (child.position.z > limit) child.position.z -= SEGMENT_LENGTH - 1.6
-      }
-    }
+  update(_dt: number): void {
+    /* lane markings are static; motion comes from the segment scroll */
   }
 
   reset(): void {

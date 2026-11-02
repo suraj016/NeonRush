@@ -14,6 +14,8 @@ function run(partial: Partial<RunStats> = {}): RunStats {
     laneChanges: 0,
     nearMisses: 0,
     mapId: 'emerald',
+    maxCombo: 0,
+    boostTime: 0,
     ...partial,
   }
 }
@@ -40,5 +42,10 @@ describe('missions', () => {
     expect(desert.completed).not.toContain('emerald_orbs_30')
     const emerald = applyMissionProgress(emptyMissions(), run({ orbs: 30, mapId: 'emerald' }), 30)
     expect(emerald.completed).toContain('emerald_orbs_30')
+  })
+
+  it('completes the style combo mission from peak combo', () => {
+    const result = applyMissionProgress(emptyMissions(), run({ maxCombo: 25 }), 8)
+    expect(result.completed).toContain('combo_25_run')
   })
 })

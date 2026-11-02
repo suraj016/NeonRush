@@ -3,7 +3,14 @@ import { THEMES } from './config.ts'
 import { createBuildingGeometry, createSkylineGeometry } from './cityBuildings.ts'
 import { createDesertEnv } from './envDesert.ts'
 import { createFrozenEnv } from './envFrozen.ts'
-import type { EnvPack } from './envShared.ts'
+import {
+  advanceLayer,
+  attachHome,
+  resetScrollLayer,
+  writeInstances,
+  type EnvPack,
+  type ScrollLayer,
+} from './envShared.ts'
 import type { MapId } from './maps.ts'
 import type { MaterialSet } from './materials.ts'
 import type { Quality } from './types.ts'
@@ -20,12 +27,7 @@ type InstanceData = {
   rot: number
 }
 
-type Layer = {
-  mesh: THREE.InstancedMesh
-  data: InstanceData[]
-  wrap: number
-  parallax: number
-}
+type Layer = ScrollLayer
 
 export class World {
   readonly root = new THREE.Group()
@@ -38,10 +40,12 @@ export class World {
   private particleGeo: THREE.BufferGeometry
   private dummy = new THREE.Object3D()
   private archData: { z: number }[] = []
+  private archHome = new Float32Array(0)
   private theme = 0
   private fog: THREE.Fog
   private scene: THREE.Scene
   private reduced = false
+  private quality: Quality
   private extras: THREE.BufferGeometry[] = []
   private time = 0
   private sky: THREE.Mesh
@@ -59,6 +63,7 @@ export class World {
 
   constructor(scene: THREE.Scene, materials: MaterialSet, quality: Quality) {
     this.scene = scene
+    this.quality = quality
     this.fog = new THREE.Fog(0x102923, 58, 205)
     scene.fog = this.fog
     scene.background = new THREE.Color(0x0e2420)
@@ -90,7 +95,6 @@ export class World {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       mesh.castShadow = false
       mesh.receiveShadow = false
-      mesh.frustumCulled = false
       const data: InstanceData[] = []
       for (let i = 0; i < nearCount; i += 1) {
         const side = (kind + i) % 2 === 0 ? -1 : 1
@@ -107,16 +111,15 @@ export class World {
           rot: side > 0 ? Math.PI : 0,
         })
       }
-      this.layers.push({ mesh, data, wrap: 204, parallax: 1 })
+      this.layers.push({ mesh, data, wrap: 204, parallax: 1, homeZ: attachHome(data) })
       this.root.add(mesh)
     }
 
-    const farCount = quality === 'low' ? 18 : quality === 'medium' ? 28 : 36
+    const farCount = quality === 'low' ? 14 : quality === 'medium' ? 20 : 24
     const skyGeoBuilding = createSkylineGeometry()
     this.extras.push(skyGeoBuilding)
     const skyMesh = new THREE.InstancedMesh(skyGeoBuilding, materials.skyline, farCount)
     skyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    skyMesh.frustumCulled = false
     const farData: InstanceData[] = []
     for (let i = 0; i < farCount; i += 1) {
       const side = i % 2 === 0 ? -1 : 1
@@ -130,10 +133,10 @@ export class World {
         rot: side > 0 ? Math.PI : 0,
       })
     }
-    this.layers.push({ mesh: skyMesh, data: farData, wrap: 280, parallax: 0.48 })
+    this.layers.push({ mesh: skyMesh, data: farData, wrap: 280, parallax: 0.48, homeZ: attachHome(farData) })
     this.root.add(skyMesh)
 
-    for (const layer of this.layers) this.writeLayer(layer)
+    for (const layer of this.layers) writeInstances(layer.mesh, layer.data, this.dummy)
 
     const railGeo = new THREE.BoxGeometry(0.22, 0.08, 80)
     this.extras.push(railGeo)
@@ -148,13 +151,17 @@ export class World {
     this.extras.push(archGeo)
     this.arches = new THREE.InstancedMesh(archGeo, materials.glowViolet, 10)
     this.arches.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.archHome = new Float32Array(10)
     for (let i = 0; i < 10; i += 1) {
-      this.archData.push({ z: -i * 22 - 14 })
+      const z = -i * 22 - 14
+      this.archData.push({ z })
+      this.archHome[i] = z
       this.writeArch(i, 0.08)
     }
+    this.arches.instanceMatrix.needsUpdate = true
     this.root.add(this.arches)
 
-    const droneCount = quality === 'low' ? 3 : 7
+    const droneCount = quality === 'low' ? 2 : 4
     for (let i = 0; i < droneCount; i += 1) {
       const drone = new THREE.Group()
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.16, 0.34), materials.metal)
@@ -201,7 +208,7 @@ export class World {
       this.root.add(board)
     }
 
-    const particleCount = quality === 'low' ? 0 : quality === 'high' ? 80 : 36
+    const particleCount = quality === 'high' ? 20 : 0
     const positions = new Float32Array(Math.max(1, particleCount) * 3)
     for (let i = 0; i < particleCount; i += 1) {
       positions[i * 3] = (Math.random() - 0.5) * 28
@@ -234,10 +241,11 @@ export class World {
   }
 
   setQuality(quality: Quality, reduced: boolean): void {
+    this.quality = quality
     this.reduced = reduced
-    this.particles.visible = this.mapId === 'emerald' && quality !== 'low' && !reduced
-    this.desert.setReduced(reduced)
-    this.frozen.setReduced(reduced)
+    this.particles.visible = this.mapId === 'emerald' && quality === 'high' && !reduced
+    this.desert.setReduced(reduced || quality !== 'high')
+    this.frozen.setReduced(reduced || quality !== 'high')
   }
 
   setMap(id: MapId): void {
@@ -245,7 +253,10 @@ export class World {
     this.emeraldRoot.visible = id === 'emerald'
     this.desert.root.visible = id === 'desert'
     this.frozen.root.visible = id === 'frozen'
-    this.particles.visible = id === 'emerald' && !this.reduced
+    this.emeraldRoot.matrixWorldAutoUpdate = id === 'emerald'
+    this.desert.root.matrixWorldAutoUpdate = id === 'desert'
+    this.frozen.root.matrixWorldAutoUpdate = id === 'frozen'
+    this.particles.visible = id === 'emerald' && this.quality === 'high' && !this.reduced
     const pack = id === 'desert' ? this.desert : id === 'frozen' ? this.frozen : null
     if (pack) {
       this.scene.background = new THREE.Color(pack.bg)
@@ -264,6 +275,14 @@ export class World {
   reset(): void {
     this.theme = 0
     this.time = 0
+    this.particles.position.z = 0
+    this.arches.position.z = 0
+    for (let i = 0; i < this.archData.length; i += 1) {
+      this.archData[i].z = this.archHome[i]
+      this.writeArch(i, 0.08)
+    }
+    this.arches.instanceMatrix.needsUpdate = true
+    for (const layer of this.layers) resetScrollLayer(layer, this.dummy)
     this.desert.reset()
     this.frozen.reset()
     if (this.mapId === 'emerald') this.applyTheme(0, 1)
@@ -286,30 +305,39 @@ export class World {
     this.holoPulse += dt
     this.holoFrame += 1
 
-    for (const layer of this.layers) {
-      const moved = distanceMoved * layer.parallax
-      for (let i = 0; i < layer.data.length; i += 1) {
-        const data = layer.data[i]
-        data.z += moved
-        if (data.z > 28) data.z -= layer.wrap
-      }
-      this.writeLayer(layer)
-    }
+    for (const layer of this.layers) advanceLayer(layer, this.dummy, distanceMoved)
 
     const tunnel = this.theme === 1 ? 1 : 0.12
+    this.arches.position.z += distanceMoved
+    let archDirty = false
+    const archParent = this.arches.position.z
     for (let i = 0; i < this.archData.length; i += 1) {
-      this.archData[i].z += distanceMoved
-      if (this.archData[i].z > 18) this.archData[i].z -= 10 * 22
-      this.writeArch(i, tunnel)
+      const next = this.archData[i].z + archParent > 18 ? this.archData[i].z - 220 : this.archData[i].z
+      if (next !== this.archData[i].z) {
+        this.archData[i].z = next
+        this.writeArch(i, tunnel)
+        archDirty = true
+      }
     }
-    this.arches.instanceMatrix.needsUpdate = true
+    if (archParent > 220) {
+      this.arches.position.z -= 220
+      for (let i = 0; i < this.archData.length; i += 1) {
+        this.archData[i].z += 220
+        this.writeArch(i, tunnel)
+      }
+      archDirty = true
+    }
+    if (archDirty) this.arches.instanceMatrix.needsUpdate = true
     this.arches.visible = this.theme !== 0 || runDistance > 700
 
+    const fancyDrones = !this.reduced
     for (let i = 0; i < this.drones.length; i += 1) {
       const drone = this.drones[i]
       drone.position.z += distanceMoved * 0.7 + dt * 4
-      drone.position.y = 9 + (i % 4) * 1.6 + Math.sin(this.time * 0.9 + i) * 0.35
-      drone.rotation.z = Math.sin(this.time * 1.4 + i) * 0.08
+      if (fancyDrones) {
+        drone.position.y = 9 + (i % 4) * 1.6 + Math.sin(this.time * 0.9 + i) * 0.35
+        drone.rotation.z = Math.sin(this.time * 1.4 + i) * 0.08
+      }
       if (drone.position.z > 22) drone.position.z -= 140
     }
 
@@ -340,31 +368,9 @@ export class World {
     this.floorR.position.z = this.floorL.position.z
 
     if (this.particles.visible && playing && !this.reduced) {
-      const pos = this.particleGeo.attributes.position
-      const array = pos.array as Float32Array
-      for (let i = 0; i < array.length; i += 3) {
-        array[i + 2] += distanceMoved * 1.25
-        array[i + 1] -= dt * 2.4
-        if (array[i + 2] > 12 || array[i + 1] < 0.2) {
-          array[i] = (Math.random() - 0.5) * 22
-          array[i + 1] = 4 + Math.random() * 12
-          array[i + 2] = -70 - Math.random() * 80
-        }
-      }
-      pos.needsUpdate = true
+      this.particles.position.z += distanceMoved * 1.25
+      if (this.particles.position.z > 80) this.particles.position.z -= 80
     }
-  }
-
-  private writeLayer(layer: Layer): void {
-    for (let i = 0; i < layer.data.length; i += 1) {
-      const data = layer.data[i]
-      this.dummy.position.set(data.x, data.y, data.z)
-      this.dummy.scale.set(data.sx, data.sy, data.sz)
-      this.dummy.rotation.set(0, data.rot, 0)
-      this.dummy.updateMatrix()
-      layer.mesh.setMatrixAt(i, this.dummy.matrix)
-    }
-    layer.mesh.instanceMatrix.needsUpdate = true
   }
 
   private writeArch(i: number, visible: number): void {

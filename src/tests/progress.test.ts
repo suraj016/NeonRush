@@ -14,6 +14,8 @@ function run(partial: Partial<RunStats> = {}): RunStats {
     laneChanges: 0,
     nearMisses: 0,
     mapId: 'emerald',
+    maxCombo: 0,
+    boostTime: 0,
     ...partial,
   }
 }

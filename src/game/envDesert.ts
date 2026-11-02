@@ -1,6 +1,16 @@
 import * as THREE from 'three'
 import { createDesertGeos } from './desertGeo.ts'
-import { makePoints, scrollLayer, seedLayer, writeInstances, type EnvPack, type InstanceData } from './envShared.ts'
+import {
+  advanceLayer,
+  attachHome,
+  makePoints,
+  resetScrollLayer,
+  seedLayer,
+  writeInstances,
+  type EnvPack,
+  type InstanceData,
+  type ScrollLayer,
+} from './envShared.ts'
 import type { MaterialSet } from './materials.ts'
 import type { Quality } from './types.ts'
 
@@ -49,7 +59,7 @@ export function createDesertEnv(materials: MaterialSet, quality: Quality): EnvPa
   floorR.position.x = 46
   root.add(floorL, floorR)
 
-  const layerList: { mesh: THREE.InstancedMesh; data: InstanceData[]; wrap: number; parallax: number }[] = []
+  const layerList: ScrollLayer[] = []
 
   const addLayer = (
     geo: THREE.BufferGeometry,
@@ -59,11 +69,10 @@ export function createDesertEnv(materials: MaterialSet, quality: Quality): EnvPa
     parallax: number,
   ) => {
     const mesh = new THREE.InstancedMesh(geo, mat, data.length)
-    mesh.frustumCulled = false
     writeInstances(mesh, data, dummy)
     root.add(mesh)
     meshes.push(mesh)
-    layerList.push({ mesh, data, wrap, parallax })
+    layerList.push({ mesh, data, wrap, parallax, homeZ: attachHome(data) })
   }
 
   const low = quality === 'low'
@@ -340,7 +349,7 @@ export function createDesertEnv(materials: MaterialSet, quality: Quality): EnvPa
     1,
   )
 
-  const dustCount = quality === 'low' ? 0 : quality === 'high' ? 56 : 28
+  const dustCount = quality === 'high' ? 20 : 0
   const dust = makePoints(dustCount, 0xddd0b0, 0.055)
   extras.push(dust.geometry)
   dust.visible = dustCount > 0
@@ -358,28 +367,17 @@ export function createDesertEnv(materials: MaterialSet, quality: Quality): EnvPa
     },
     reset() {
       sky.rotation.y = 0
+      dust.position.z = 0
+      for (const layer of layerList) resetScrollLayer(layer, dummy)
     },
     update(dt, moved, distance, playing) {
       sky.rotation.y += dt * 0.003
       floorL.position.z = -90 + ((distance * 0.12) % 20)
       floorR.position.z = floorL.position.z
-      for (const layer of layerList) {
-        scrollLayer(layer.data, moved * layer.parallax, layer.wrap)
-        writeInstances(layer.mesh, layer.data, dummy)
-      }
+      for (const layer of layerList) advanceLayer(layer, dummy, moved)
       if (dust.visible && playing && !reduced) {
-        const pos = dust.geometry.attributes.position
-        const array = pos.array as Float32Array
-        for (let i = 0; i < array.length; i += 3) {
-          array[i] += dt * 1.2
-          array[i + 2] += moved * 1.05
-          if (array[i + 2] > 12 || array[i] > 14) {
-            array[i] = (Math.random() - 0.5) * 22
-            array[i + 1] = 1 + Math.random() * 7
-            array[i + 2] = -80 - Math.random() * 60
-          }
-        }
-        pos.needsUpdate = true
+        dust.position.z += moved * 1.05
+        if (dust.position.z > 80) dust.position.z -= 80
       }
     },
     dispose() {

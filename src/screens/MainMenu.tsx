@@ -4,15 +4,18 @@ import { getEngine } from '../game/bridge.ts'
 import { dailyForDate, localDateKey } from '../game/daily.ts'
 import { MAPS } from '../game/maps.ts'
 import { xpToNext } from '../game/progress.ts'
+import { mapStars, starLabel } from '../game/records.ts'
 import { Screens } from '../game/types.ts'
 import { useGameStore } from '../store/gameStore.ts'
 import { asset } from '../utils/assets.ts'
 
 export function MainMenu() {
   const profile = useGameStore((s) => s.profile)
+  const mapRecord = useGameStore((s) => s.mapRecords[s.profile.selectedMap])
   const setScreen = useGameStore((s) => s.setScreen)
   const daily = dailyForDate(profile.dailyDate || localDateKey())
   const needed = xpToNext(profile.level)
+  const world = MAPS[profile.selectedMap]
 
   return (
     <div className="screen screen-center menu-backdrop">
@@ -40,6 +43,10 @@ export function MainMenu() {
           <p className="muted">
             {daily.title}: {Math.min(Math.floor(profile.dailyProgress), daily.target)}/{daily.target}
             {profile.streak > 0 ? ` · ${profile.streak} day streak` : ''}
+          </p>
+          <p className="muted">
+            {world.name} {starLabel(mapStars(mapRecord?.bestDistance ?? 0))}
+            {mapRecord?.bestDistance ? ` · ${Math.floor(mapRecord.bestDistance)}m` : ' · Set a personal best'}
           </p>
         </div>
         <div className="stack">

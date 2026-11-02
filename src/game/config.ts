@@ -2,7 +2,7 @@ import type { MapId } from './maps.ts'
 import type { MissionId, Settings, SkinId } from './types.ts'
 import { asset } from '../utils/assets.ts'
 
-export const SAVE_VERSION = 2
+export const SAVE_VERSION = 3
 export const SAVE_KEY = 'neon-rush-save-v1'
 
 export const LANES = [-2.35, 0, 2.35] as const
@@ -37,14 +37,29 @@ export const SCORE = {
   missionBonus: 200,
   nearMiss: 8,
   milestone: 50,
+  comboHit: 2,
+  comboTier: 50,
 }
 
+export const BOOST = {
+  maxMultiplier: 1.5,
+  turboMultiplier: 1.7,
+  maxCombinedMultiplier: 1.75,
+  drainPerSecond: 0.2,
+  chargeMax: 100,
+  orbRecharge: 15,
+  accel: 5.5,
+  decel: 6.5,
+  holdMs: 160,
+  fovDegrees: 5,
+  startCharge: 100,
+} as const
+
 export const POWERUP = {
-  shield: 8,
-  magnet: 8,
-  multiplier: 10,
   magnetRadius: 5.5,
   scoreMul: 2,
+  spawnChanceBase: 0.07,
+  spawnChanceTierBonus: 0.03,
 }
 
 export const SKINS: Record<
@@ -105,7 +120,7 @@ export const MISSIONS: Record<
     target: number
     reward: number
     scope: 'run' | 'lifetime'
-    stat: 'orbs' | 'duration' | 'distance' | 'powerups' | 'score' | 'orbsLifetime' | 'hazardsAvoided' | 'laneChanges'
+    stat: 'orbs' | 'duration' | 'distance' | 'powerups' | 'score' | 'orbsLifetime' | 'hazardsAvoided' | 'laneChanges' | 'maxCombo'
     map?: MapId
     group: 'run' | 'skill' | 'world'
   }
@@ -222,6 +237,16 @@ export const MISSIONS: Record<
     stat: 'hazardsAvoided',
     map: 'frozen',
     group: 'world',
+  },
+  combo_25_run: {
+    id: 'combo_25_run',
+    title: 'Style Chain',
+    description: 'Reach a 25-hit style combo in one run.',
+    target: 25,
+    reward: 70,
+    scope: 'run',
+    stat: 'maxCombo',
+    group: 'skill',
   },
 }
 

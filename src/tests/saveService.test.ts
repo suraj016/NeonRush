@@ -47,6 +47,8 @@ describe('saveService', () => {
     expect(migrated.profile.seenTutorial).toBe(false)
     expect(migrated.statistics.achievements.first_run.unlocked).toBe(false)
     expect(migrated.statistics.orbsLifetime).toBe(9)
+    expect(migrated.mapRecords.emerald.bestDistance).toBe(0)
+    expect(migrated.runHistory).toEqual([])
   })
 
   it('blocks unaffordable cosmetic unlocks', () => {

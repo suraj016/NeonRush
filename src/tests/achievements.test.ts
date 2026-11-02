@@ -43,4 +43,21 @@ describe('achievements', () => {
     })
     expect(result.unlocked).toContain('map_explorer')
   })
+
+  it('unlocks style combo achievements from peak combo', () => {
+    const result = applyAchievements(emptyAchievements(), {
+      totalRuns: 4,
+      bestDistance: 400,
+      orbsLifetime: 20,
+      hazardsAvoidedLifetime: 10,
+      mapsPlayed: ['emerald'],
+      missionsCompleted: 1,
+      isBestDistance: false,
+      previousBestDistance: 400,
+      maxCombo: 80,
+    })
+    expect(result.unlocked).toContain('combo_rush')
+    expect(result.unlocked).toContain('combo_neon')
+    expect(result.unlocked).toContain('godspeed')
+  })
 })

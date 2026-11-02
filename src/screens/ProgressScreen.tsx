@@ -3,7 +3,9 @@ import { ProgressBar } from '../components/ProgressBar.tsx'
 import { ACHIEVEMENT_ORDER, ACHIEVEMENTS } from '../game/achievements.ts'
 import { SKINS } from '../game/config.ts'
 import { dailyForDate, localDateKey } from '../game/daily.ts'
+import { MAP_ORDER, MAPS } from '../game/maps.ts'
 import { xpToNext } from '../game/progress.ts'
+import { mapStars, starLabel } from '../game/records.ts'
 import { Screens } from '../game/types.ts'
 import type { SkinId } from '../game/types.ts'
 import { useGameStore } from '../store/gameStore.ts'
@@ -18,6 +20,8 @@ function nextSkin(unlocked: SkinId[]): { name: string; cost: number } | null {
 export function ProgressScreen() {
   const profile = useGameStore((s) => s.profile)
   const statistics = useGameStore((s) => s.statistics)
+  const mapRecords = useGameStore((s) => s.mapRecords)
+  const runHistory = useGameStore((s) => s.runHistory)
   const unlockedSkins = useGameStore((s) => s.unlockedSkins)
   const setScreen = useGameStore((s) => s.setScreen)
   const daily = dailyForDate(profile.dailyDate || localDateKey())
@@ -52,6 +56,28 @@ export function ProgressScreen() {
               {Math.min(Math.floor(profile.dailyProgress), daily.target)} / {daily.target}
             </p>
           </article>
+          <article className="mission-card">
+            <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>World mastery</h2>
+            {MAP_ORDER.map((id) => {
+              const rec = mapRecords[id]
+              return (
+                <p className="muted" key={id}>
+                  {MAPS[id].name} {starLabel(mapStars(rec?.bestDistance ?? 0))}
+                  {rec?.bestDistance ? ` · ${Math.floor(rec.bestDistance)}m` : ' · unranked'}
+                </p>
+              )
+            })}
+          </article>
+          {runHistory.length > 0 ? (
+            <article className="mission-card">
+              <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>Hall of fame</h2>
+              {runHistory.slice(0, 5).map((entry, index) => (
+                <p className="muted" key={`${entry.at}-${index}`}>
+                  #{index + 1} {entry.score.toLocaleString()} · {entry.distance}m · {MAPS[entry.mapId].name}
+                </p>
+              ))}
+            </article>
+          ) : null}
           <article className="mission-card">
             <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Daily streak</h2>
             <p className="muted">

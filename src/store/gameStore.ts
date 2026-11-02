@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import { applyAchievements } from '../game/achievements.ts'
-import { SKINS } from '../game/config.ts'
+import { SAVE_VERSION, SKINS } from '../game/config.ts'
 import { dailyForDate, dailyStat, localDateKey, streakReward, syncDaily, updateStreak } from '../game/daily.ts'
 import { applyMissionProgress } from '../game/missions.ts'
+import { comboRank } from '../game/combo.ts'
 import { applyXp, runXp } from '../game/progress.ts'
+import { nextOpenGoal } from '../game/recap.ts'
+import { applyRunRecords, emptyMapRecords, mapStars } from '../game/records.ts'
 import { missionBonus } from '../game/score.ts'
 import { loadSave, persistSave, resetSave } from '../services/saveService.ts'
 import type { MapId } from '../game/maps.ts'
@@ -52,6 +55,12 @@ const emptyHud: HudSnapshot = {
   tier: 'WARMUP',
   multiplier: 1,
   powerups: [],
+  boostCharge: 100,
+  boostActive: false,
+  boostReady: true,
+  combo: 0,
+  comboRank: 'FLOW',
+  comboTier: 0,
   readyLabel: null,
   hint: null,
   milestone: null,
@@ -114,6 +123,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       prev.hint === hud.hint &&
       prev.milestone === hud.milestone &&
       Math.floor(prev.speed) === Math.floor(hud.speed) &&
+      prev.boostCharge === hud.boostCharge &&
+      prev.boostActive === hud.boostActive &&
+      prev.boostReady === hud.boostReady &&
+      prev.combo === hud.combo &&
+      prev.comboRank === hud.comboRank &&
+      prev.comboTier === hud.comboTier &&
       prev.powerups.length === hud.powerups.length
     ) {
       return
@@ -153,6 +168,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const previousBestDistance = profile.bestDistance
     const isBestScore = score > profile.bestScore
     const isBestDistance = raw.distance > previousBestDistance
+    const scoredRun = { ...raw, score }
     const missionsCompleted = Object.values(missionResult.next).filter((item) => item.completed).length
     const achieve = applyAchievements(state.statistics.achievements, {
       totalRuns: profile.totalRuns + 1,
@@ -163,6 +179,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       missionsCompleted,
       isBestDistance,
       previousBestDistance,
+      maxCombo: raw.maxCombo,
     })
     const daily = dailyForDate(today)
     const dailyProgress = Math.max(profile.dailyProgress, dailyStat(daily, raw))
@@ -177,24 +194,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const levelBefore = profile.level
     const leveled = applyXp(profile.xp, profile.level, xpGain)
     const energyGain = missionResult.reward + achieve.reward + (dailyJust ? daily.reward : 0) + streakEnergy
+    const recorded = applyRunRecords(state.mapRecords ?? emptyMapRecords(), state.runHistory ?? [], scoredRun, today)
     const result: RunResult = {
       ...raw,
       score,
       isBestScore,
       isBestDistance,
+      isMapBestScore: recorded.isMapBestScore,
+      isMapBestDistance: recorded.isMapBestDistance,
+      isBestCombo: recorded.isBestCombo,
       completedMissions: missionResult.completed,
       xpEarned: xpGain,
       levelBefore,
       levelAfter: leveled.level,
       previousBestDistance,
+      previousMapDistance: recorded.previousMapDistance,
       unlockedAchievements: achieve.unlocked,
       dailyCompleted: dailyJust,
       dailyTitle: dailyJust ? daily.title : null,
       streak: streakResult.streak,
+      styleRank: comboRank(raw.maxCombo),
+      hallRank: recorded.hallRank,
+      mapStars: mapStars(recorded.records[raw.mapId].bestDistance),
+      nextGoal: nextOpenGoal(missionResult.next),
     }
 
     const next: SaveData = {
-      version: state.version,
+      version: SAVE_VERSION,
       settings: state.settings,
       profile: {
         ...profile,
@@ -224,6 +250,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         mapsPlayed,
         achievements: achieve.next,
       },
+      mapRecords: recorded.records,
+      runHistory: recorded.history,
     }
 
     set({
@@ -292,11 +320,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
 function snapshot(state: GameStore): SaveData {
   return {
-    version: state.version,
+    version: SAVE_VERSION,
     settings: state.settings,
     profile: state.profile,
     unlockedSkins: state.unlockedSkins,
     missions: state.missions,
     statistics: state.statistics,
+    mapRecords: state.mapRecords,
+    runHistory: state.runHistory,
   }
 }

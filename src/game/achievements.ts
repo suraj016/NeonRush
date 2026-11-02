@@ -63,6 +63,24 @@ export const ACHIEVEMENTS: Record<AchievementId, AchievementDef> = {
     description: 'Beat your previous distance record.',
     reward: 25,
   },
+  combo_rush: {
+    id: 'combo_rush',
+    title: 'Rush Style',
+    description: 'Reach a 10-hit style combo.',
+    reward: 20,
+  },
+  combo_neon: {
+    id: 'combo_neon',
+    title: 'Neon Fever',
+    description: 'Reach a 50-hit style combo.',
+    reward: 60,
+  },
+  godspeed: {
+    id: 'godspeed',
+    title: 'Godspeed',
+    description: 'Reach an 80-hit style combo.',
+    reward: 90,
+  },
 }
 
 export const ACHIEVEMENT_ORDER = Object.keys(ACHIEVEMENTS) as AchievementId[]
@@ -84,6 +102,7 @@ export type AchievementContext = {
   missionsCompleted: number
   isBestDistance: boolean
   previousBestDistance: number
+  maxCombo?: number
 }
 
 function meets(id: AchievementId, ctx: AchievementContext): boolean {
@@ -106,6 +125,12 @@ function meets(id: AchievementId, ctx: AchievementContext): boolean {
       return ctx.missionsCompleted >= 10
     case 'personal_best':
       return ctx.isBestDistance && ctx.previousBestDistance > 0
+    case 'combo_rush':
+      return (ctx.maxCombo ?? 0) >= 10
+    case 'combo_neon':
+      return (ctx.maxCombo ?? 0) >= 50
+    case 'godspeed':
+      return (ctx.maxCombo ?? 0) >= 80
     default:
       return false
   }

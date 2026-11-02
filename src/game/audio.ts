@@ -71,7 +71,7 @@ export class AudioManager {
     this.scheduleBar()
   }
 
-  play(name: 'ui' | 'jump' | 'slide' | 'orb' | 'power' | 'crash' | 'shield' | 'start' | 'land' | 'near' | 'milestone' | 'achieve'): void {
+  play(name: 'ui' | 'jump' | 'slide' | 'orb' | 'power' | 'crash' | 'shield' | 'start' | 'land' | 'near' | 'milestone' | 'achieve' | 'boost' | 'combo'): void {
     this.unlock()
     if (!this.ctx || !this.sfxGain) return
     const tones: Record<typeof name, Tone[]> = {
@@ -87,6 +87,8 @@ export class AudioManager {
       near: [{ freq: 1180, dur: 0.04, type: 'sine', gain: 0.035 }],
       milestone: [{ freq: 520, dur: 0.1, type: 'square', gain: 0.07 }, { freq: 780, dur: 0.12, type: 'triangle', gain: 0.06, delay: 0.08 }],
       achieve: [{ freq: 660, dur: 0.1, type: 'triangle', gain: 0.07 }, { freq: 880, dur: 0.14, type: 'sine', gain: 0.05, delay: 0.09 }],
+      boost: [{ freq: 240, dur: 0.08, type: 'sawtooth', gain: 0.05 }, { freq: 480, dur: 0.12, type: 'triangle', gain: 0.045, delay: 0.04 }],
+      combo: [{ freq: 740, dur: 0.08, type: 'square', gain: 0.06 }, { freq: 980, dur: 0.12, type: 'triangle', gain: 0.05, delay: 0.06 }],
     }
     for (const tone of tones[name]) this.beep(tone)
   }

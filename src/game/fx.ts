@@ -70,6 +70,15 @@ export class PickupFx {
       '+25': this.makeLabel('+25', '#FFD166'),
       '+50': this.makeLabel('+50', '#FFD166'),
       PWR: this.makeLabel('PWR', '#18B8C9'),
+      SHLD: this.makeLabel('SHLD', '#18B8C9'),
+      MAG: this.makeLabel('MAG', '#A6FF4D'),
+      x2: this.makeLabel('x2', '#FFD166'),
+      TURBO: this.makeLabel('TURBO', '#FF9F43'),
+      '+15': this.makeLabel('+15', '#A6FF4D'),
+      RUSH: this.makeLabel('RUSH', '#00F5A0'),
+      OVER: this.makeLabel('OVER', '#A6FF4D'),
+      NEON: this.makeLabel('NEON', '#FFD166'),
+      GOD: this.makeLabel('GOD', '#FF6AD5'),
     }
     for (let i = 0; i < 8; i += 1) this.pool.push(this.createBurst())
   }

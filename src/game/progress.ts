@@ -26,5 +26,7 @@ export function runXp(run: RunStats): number {
   const avoided = run.hazardsAvoided
   const near = run.nearMisses * 2
   const power = run.powerupsUsed * 4
-  return Math.max(8, distance + orbs + avoided + near + power)
+  const combo = Math.floor(run.maxCombo * 0.4)
+  const boost = Math.floor(run.boostTime)
+  return Math.max(8, distance + orbs + avoided + near + power + combo + boost)
 }

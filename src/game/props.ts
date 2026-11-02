@@ -34,6 +34,8 @@ export function createPropGeos() {
     magnetCore: new THREE.BoxGeometry(0.14, 0.14, 0.1),
     multiStar: new THREE.OctahedronGeometry(0.26),
     multiRing: new THREE.TorusGeometry(0.2, 0.032, 6, 14),
+    turboCone: new THREE.ConeGeometry(0.22, 0.36, 4),
+    turboWing: new THREE.BoxGeometry(0.12, 0.04, 0.22),
   }
 }
 
@@ -173,5 +175,17 @@ export function makeMultiplier(geos: PropGeos, mats: MaterialSet): THREE.Group {
   const g = new THREE.Group()
   add(g, geos.multiStar, mats.multiplier, 0, 0, 0)
   add(g, geos.multiRing, mats.glowAmber, 0, 0, 0)
+  return g
+}
+
+export function makeTurbo(geos: PropGeos, mats: MaterialSet): THREE.Group {
+  const g = new THREE.Group()
+  const cone = add(g, geos.turboCone, mats.multiplier, 0, 0.02, 0)
+  cone.rotation.x = Math.PI
+  const wingA = add(g, geos.turboWing, mats.glowAmber, 0.16, 0.08, 0)
+  wingA.rotation.z = 0.45
+  const wingB = add(g, geos.turboWing, mats.glowAmber, -0.16, 0.08, 0)
+  wingB.rotation.z = -0.45
+  add(g, geos.multiRing, mats.coinRing, 0, 0.12, 0)
   return g
 }
