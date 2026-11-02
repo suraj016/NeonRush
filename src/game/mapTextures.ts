@@ -12,7 +12,7 @@ function tex(ctx: CanvasRenderingContext2D): THREE.CanvasTexture {
   map.wrapS = THREE.RepeatWrapping
   map.wrapT = THREE.RepeatWrapping
   map.colorSpace = THREE.SRGBColorSpace
-  map.anisotropy = 4
+  map.anisotropy = 1
   return map
 }
 

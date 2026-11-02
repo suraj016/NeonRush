@@ -9,7 +9,7 @@ export const LANES = [-2.35, 0, 2.35] as const
 export const LANE_WIDTH = 2.35
 
 export const SEGMENT_LENGTH = 22
-export const SEGMENT_COUNT = 10
+export const SEGMENT_COUNT = 8
 export const RECYCLE_Z = 16
 
 export const PLAYER = {

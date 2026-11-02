@@ -88,7 +88,8 @@ html.playing .ui-layer {
   pointer-events: auto;
 }
 
-.hud-root {
+.hud-root,
+.ui-layer > .hud-root {
   pointer-events: none;
 }
 

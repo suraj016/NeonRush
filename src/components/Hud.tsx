@@ -9,17 +9,30 @@ import { getEngine } from '../game/bridge.ts'
 import { Screens } from '../game/types.ts'
 import type { PowerUpType } from '../game/types.ts'
 
-function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(pointer: coarse)').matches : false,
-  )
+function useTouchPlay(): boolean {
+  const read = () => {
+    if (typeof window === 'undefined') return false
+    return (
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(hover: none)').matches ||
+      Math.min(window.innerWidth, window.innerHeight) < 820
+    )
+  }
+  const [touch, setTouch] = useState(read)
   useEffect(() => {
-    const mq = window.matchMedia('(pointer: coarse)')
-    const onChange = () => setCoarse(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+    const coarse = window.matchMedia('(pointer: coarse)')
+    const hover = window.matchMedia('(hover: none)')
+    const onChange = () => setTouch(read())
+    coarse.addEventListener('change', onChange)
+    hover.addEventListener('change', onChange)
+    window.addEventListener('resize', onChange)
+    return () => {
+      coarse.removeEventListener('change', onChange)
+      hover.removeEventListener('change', onChange)
+      window.removeEventListener('resize', onChange)
+    }
   }, [])
-  return coarse
+  return touch
 }
 
 export function Hud() {
@@ -28,7 +41,7 @@ export function Hud() {
   const mapBest = useGameStore((s) => s.mapRecords[s.profile.selectedMap]?.bestDistance ?? 0)
   const [pop, setPop] = useState<'score' | 'orbs' | 'combo' | null>(null)
   const prev = useRef({ score: 0, energy: 0, combo: 0 })
-  const coarse = useCoarsePointer()
+  const touch = useTouchPlay()
 
   useEffect(() => {
     let next: 'score' | 'orbs' | 'combo' | null = null
@@ -47,7 +60,7 @@ export function Hud() {
   const fever = hud.comboTier >= 3
 
   return (
-    <div className={`hud hud-root${fever ? ' hud-fever' : ''}${hud.comboTier >= 4 ? ' hud-godspeed' : ''}`}>
+    <div className={`hud hud-root${touch ? ' hud-touch' : ''}${fever ? ' hud-fever' : ''}${hud.comboTier >= 4 ? ' hud-godspeed' : ''}`}>
       <div className="hud-top">
         <div className="hud-cluster">
           <div className={`chip${pop === 'score' ? ' chip-pop' : ''}`}>
@@ -58,8 +71,8 @@ export function Hud() {
             <span>Distance</span>
             <strong>{hud.distance}m</strong>
           </div>
-          {chase ? (
-            <div className={`chip${hud.distance > mapBest && mapBest > 0 ? ' chip-pop' : ''}`}>
+          {chase && !touch ? (
+            <div className={`chip chip-chase${hud.distance > mapBest && mapBest > 0 ? ' chip-pop' : ''}`}>
               <span>{MAPS[mapId].name}</span>
               <strong>{chase}</strong>
             </div>
@@ -68,10 +81,18 @@ export function Hud() {
             <span>Orbs</span>
             <strong>{hud.energy}</strong>
           </div>
-          <div className={`chip${hud.boostActive ? ' chip-pop' : ''}`}>
-            <span>{hud.boostActive ? 'Boost' : 'Speed'}</span>
-            <strong>{hud.speed.toFixed(0)} m/s</strong>
-          </div>
+          {!touch ? (
+            <div className={`chip chip-speed${hud.boostActive ? ' chip-pop' : ''}`}>
+              <span>{hud.boostActive ? 'Boost' : 'Speed'}</span>
+              <strong>{hud.speed.toFixed(0)} m/s</strong>
+            </div>
+          ) : null}
+          {touch && hud.combo > 0 ? (
+            <div className={`chip chip-combo combo-tier-${hud.comboTier}${pop === 'combo' ? ' chip-pop' : ''}`}>
+              <span>{hud.comboRank}</span>
+              <strong>x{hud.combo}</strong>
+            </div>
+          ) : null}
         </div>
         <button
           className="icon-btn"
@@ -84,15 +105,7 @@ export function Hud() {
           <IconPause />
         </button>
       </div>
-      <div className="boost-meter">
-        <div className="boost-meter-head">
-          <span>Boost charge</span>
-          <strong>{hud.boostCharge}%</strong>
-        </div>
-        <ProgressBar value={hud.boostCharge} max={100} />
-        {!coarse ? <p className="boost-hint">Hold Space to boost</p> : null}
-      </div>
-      {hud.combo > 0 ? (
+      {!touch && hud.combo > 0 ? (
         <div className={`combo-banner combo-tier-${hud.comboTier}${pop === 'combo' ? ' combo-pop' : ''}`}>
           <span>{hud.comboRank}</span>
           <strong>x{hud.combo}</strong>
@@ -115,40 +128,50 @@ export function Hud() {
           </button>
         </div>
       ) : null}
-      {hud.powerups.length > 0 ? (
-        <div className="power-row">
-          {hud.powerups.map((item) => (
-            <div className="chip" key={item.type}>
-              <span>
-                {POWERUP_DEFS[item.type as PowerUpType]?.hudLabel ?? item.type}
-                {hud.multiplier > 1 && item.type === 'multiplier' ? ` x${hud.multiplier}` : ''}
-              </span>
-              <strong>{item.remaining.toFixed(1)}s</strong>
-            </div>
-          ))}
+      <div className="hud-bottom">
+        {hud.powerups.length > 0 ? (
+          <div className="power-row">
+            {hud.powerups.map((item) => (
+              <div className="chip" key={item.type}>
+                <span>
+                  {POWERUP_DEFS[item.type as PowerUpType]?.hudLabel ?? item.type}
+                  {hud.multiplier > 1 && item.type === 'multiplier' ? ` x${hud.multiplier}` : ''}
+                </span>
+                <strong>{item.remaining.toFixed(1)}s</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="boost-meter">
+          <div className="boost-meter-head">
+            <span>Boost</span>
+            <strong>{hud.boostCharge}%</strong>
+          </div>
+          <ProgressBar value={hud.boostCharge} max={100} />
+          {!touch ? <p className="boost-hint">Hold Space</p> : null}
         </div>
-      ) : null}
-      {coarse ? (
-        <button
-          type="button"
-          className={`boost-hold-btn${hud.boostActive ? ' boost-hold-btn-active' : ''}${!hud.boostReady ? ' boost-hold-btn-empty' : ''}`}
-          aria-label="Hold to boost"
-          onPointerDown={(event) => {
-            event.preventDefault()
-            try {
-              event.currentTarget.setPointerCapture(event.pointerId)
-            } catch {
-              /* optional */
-            }
-            getEngine()?.setMobileBoostHeld(true)
-          }}
-          onPointerUp={releaseBoost}
-          onPointerCancel={releaseBoost}
-          onLostPointerCapture={releaseBoost}
-        >
-          Hold to Boost
-        </button>
-      ) : null}
+        {touch ? (
+          <button
+            type="button"
+            className={`boost-hold-btn${hud.boostActive ? ' boost-hold-btn-active' : ''}${!hud.boostReady ? ' boost-hold-btn-empty' : ''}`}
+            aria-label="Hold to boost"
+            onPointerDown={(event) => {
+              event.preventDefault()
+              try {
+                event.currentTarget.setPointerCapture(event.pointerId)
+              } catch {
+                /* optional */
+              }
+              getEngine()?.setMobileBoostHeld(true)
+            }}
+            onPointerUp={releaseBoost}
+            onPointerCancel={releaseBoost}
+            onLostPointerCapture={releaseBoost}
+          >
+            Hold to Boost
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }

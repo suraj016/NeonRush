@@ -196,7 +196,14 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  pointer-events: none;
   touch-action: none;
+}
+
+.hud .icon-btn,
+.hud .hint-skip,
+.hud .boost-hold-btn {
+  pointer-events: auto;
 }
 
 .hud-top {
@@ -259,6 +266,17 @@
   display: flex;
   gap: 8px;
   justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hud-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: min(360px, 100%);
+  align-self: center;
+  pointer-events: none;
 }
 
 .ready-banner {
@@ -287,7 +305,7 @@
 .hud-hint {
   position: absolute;
   left: 50%;
-  bottom: 18%;
+  bottom: max(148px, calc(env(safe-area-inset-bottom) + 132px));
   transform: translateX(-50%);
   width: min(420px, 86vw);
   display: flex;
@@ -306,11 +324,11 @@
 }
 
 .boost-meter {
-  width: min(420px, calc(100% - 56px));
-  margin-top: 8px;
-  padding: 8px 10px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(16, 41, 35, 0.68);
+  background: rgba(16, 41, 35, 0.72);
   border: 1px solid rgba(0, 245, 160, 0.18);
 }
 
@@ -338,10 +356,10 @@
 }
 
 .boost-hold-btn {
-  align-self: center;
+  align-self: stretch;
   min-height: 52px;
-  min-width: min(280px, 88vw);
-  margin-top: 8px;
+  min-width: 0;
+  margin-top: 0;
   padding: 0 18px;
   border-radius: 14px;
   border: 1px solid rgba(0, 245, 160, 0.35);
@@ -351,6 +369,8 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .boost-hold-btn-active {
@@ -366,8 +386,8 @@
 .combo-banner {
   position: absolute;
   left: 50%;
-  top: 18%;
-  transform: translate(-50%, -50%);
+  top: max(92px, calc(env(safe-area-inset-top) + 78px));
+  transform: translateX(-50%);
   min-width: 120px;
   padding: 6px 14px;
   border-radius: 999px;
@@ -398,6 +418,10 @@
 .combo-tier-3 strong { color: #ffd166; }
 .combo-tier-4 { border-color: rgba(255, 106, 213, 0.65); box-shadow: 0 0 22px rgba(255, 106, 213, 0.25); }
 .combo-tier-4 strong { color: #ff6ad5; }
+
+.chip-combo strong {
+  color: var(--accent-cyan);
+}
 
 .combo-pop {
   animation: chip-pop 0.28s ease;
@@ -827,11 +851,29 @@
   }
 
   .combo-banner {
-    top: 22%;
+    top: max(108px, calc(env(safe-area-inset-top) + 92px));
   }
 
   .hud-cluster {
     max-width: calc(100% - 56px);
+  }
+
+  .hud-touch .hud-bottom {
+    width: min(280px, 92%);
+    gap: 6px;
+  }
+
+  .hud-touch .boost-meter {
+    padding: 4px 8px;
+  }
+
+  .hud-touch .boost-hold-btn {
+    min-height: 52px;
+  }
+
+  .hud-touch .icon-btn {
+    width: 48px;
+    height: 48px;
   }
 
   .chip {
@@ -856,10 +898,20 @@
   .hud {
     padding: 10px;
     padding-top: max(10px, env(safe-area-inset-top));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .hud-touch .hud-bottom {
+    width: min(240px, 94%);
   }
 
   .chip span {
     font-size: 9px;
+  }
+
+  .hud-hint {
+    width: min(360px, 92vw);
+    padding: 8px 10px;
   }
 }
 
@@ -890,6 +942,7 @@
     padding: 8px 12px;
     padding-left: max(12px, env(safe-area-inset-left));
     padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .chip {
@@ -907,12 +960,32 @@
   }
 
   .combo-banner {
-    top: 14%;
+    top: max(64px, calc(env(safe-area-inset-top) + 56px));
     padding: 4px 10px;
   }
 
   .combo-banner strong {
     font-size: 16px;
+  }
+
+  .hud-touch .hud-bottom {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: min(220px, 38vw);
+    align-self: flex-end;
+  }
+
+  .hud-touch .boost-hold-btn {
+    min-height: 56px;
+  }
+
+  .hud-touch .hud-hint {
+    left: max(16px, env(safe-area-inset-left));
+    right: auto;
+    transform: none;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: min(320px, 48vw);
   }
 
   .panel {

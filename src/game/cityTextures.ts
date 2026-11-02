@@ -15,7 +15,10 @@ function toTexture(canvas: HTMLCanvasElement, repeatX = 1, repeatY = 1): THREE.C
   tex.colorSpace = THREE.SRGBColorSpace
   tex.wrapS = THREE.RepeatWrapping
   tex.wrapT = THREE.RepeatWrapping
-  tex.anisotropy = 8
+  tex.anisotropy = 1
+  tex.generateMipmaps = true
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.magFilter = THREE.LinearFilter
   tex.repeat.set(repeatX, repeatY)
   tex.needsUpdate = true
   return tex

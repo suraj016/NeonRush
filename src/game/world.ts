@@ -58,11 +58,13 @@ export class World {
   private holoFrame = 0
   private mapId: MapId = 'emerald'
   private emeraldRoot = new THREE.Group()
-  private desert: EnvPack
-  private frozen: EnvPack
+  private desert: EnvPack | null = null
+  private frozen: EnvPack | null = null
+  private materials: MaterialSet
 
   constructor(scene: THREE.Scene, materials: MaterialSet, quality: Quality) {
     this.scene = scene
+    this.materials = materials
     this.quality = quality
     this.fog = new THREE.Fog(0x102923, 58, 205)
     scene.fog = this.fog
@@ -233,29 +235,26 @@ export class World {
     const existing = [...this.root.children]
     for (const child of existing) this.emeraldRoot.add(child)
     this.root.add(this.emeraldRoot)
-    this.desert = createDesertEnv(materials, quality)
-    this.frozen = createFrozenEnv(materials, quality)
-    this.desert.root.visible = false
-    this.frozen.root.visible = false
-    this.root.add(this.desert.root, this.frozen.root)
   }
 
   setQuality(quality: Quality, reduced: boolean): void {
     this.quality = quality
     this.reduced = reduced
     this.particles.visible = this.mapId === 'emerald' && quality === 'high' && !reduced
-    this.desert.setReduced(reduced || quality !== 'high')
-    this.frozen.setReduced(reduced || quality !== 'high')
+    this.desert?.setReduced(reduced || quality !== 'high')
+    this.frozen?.setReduced(reduced || quality !== 'high')
   }
 
   setMap(id: MapId): void {
     this.mapId = id
+    if (id === 'desert') this.ensureDesert()
+    if (id === 'frozen') this.ensureFrozen()
     this.emeraldRoot.visible = id === 'emerald'
-    this.desert.root.visible = id === 'desert'
-    this.frozen.root.visible = id === 'frozen'
+    if (this.desert) this.desert.root.visible = id === 'desert'
+    if (this.frozen) this.frozen.root.visible = id === 'frozen'
     this.emeraldRoot.matrixWorldAutoUpdate = id === 'emerald'
-    this.desert.root.matrixWorldAutoUpdate = id === 'desert'
-    this.frozen.root.matrixWorldAutoUpdate = id === 'frozen'
+    if (this.desert) this.desert.root.matrixWorldAutoUpdate = id === 'desert'
+    if (this.frozen) this.frozen.root.matrixWorldAutoUpdate = id === 'frozen'
     this.particles.visible = id === 'emerald' && this.quality === 'high' && !this.reduced
     const pack = id === 'desert' ? this.desert : id === 'frozen' ? this.frozen : null
     if (pack) {
@@ -283,19 +282,19 @@ export class World {
     }
     this.arches.instanceMatrix.needsUpdate = true
     for (const layer of this.layers) resetScrollLayer(layer, this.dummy)
-    this.desert.reset()
-    this.frozen.reset()
+    this.desert?.reset()
+    this.frozen?.reset()
     if (this.mapId === 'emerald') this.applyTheme(0, 1)
     else this.setMap(this.mapId)
   }
 
   update(dt: number, distanceMoved: number, runDistance: number, playing: boolean): void {
     if (this.mapId === 'desert') {
-      this.desert.update(dt, distanceMoved, runDistance, playing)
+      this.desert?.update(dt, distanceMoved, runDistance, playing)
       return
     }
     if (this.mapId === 'frozen') {
-      this.frozen.update(dt, distanceMoved, runDistance, playing)
+      this.frozen?.update(dt, distanceMoved, runDistance, playing)
       return
     }
     this.time += dt
@@ -385,10 +384,15 @@ export class World {
     const theme = THEMES[index]
     const current = this.scene.background as THREE.Color
     this.themeTarget.setHex(index === 0 ? 0x0e2420 : theme.fog)
+    const far = index === 1 ? 150 : 210
+    const dr = current.r - this.themeTarget.r
+    const dg = current.g - this.themeTarget.g
+    const db = current.b - this.themeTarget.b
+    if (dr * dr + dg * dg + db * db < 0.0008 && Math.abs(this.fog.far - far) < 1) return
     current.lerp(this.themeTarget, 1 - Math.exp(-dt * 0.9))
     this.fog.color.copy(current)
     this.fog.near = 55
-    this.fog.far = damp(this.fog.far, index === 1 ? 150 : 210, 1.2, dt)
+    this.fog.far = damp(this.fog.far, far, 1.2, dt)
     this.themeAccent.setHex(theme.accent)
     ;(this.arches.material as THREE.MeshBasicMaterial).color.lerp(this.themeAccent, 0.08)
   }
@@ -399,7 +403,25 @@ export class World {
     this.particleGeo.dispose()
     ;(this.particles.material as THREE.Material).dispose()
     for (const geo of this.extras) geo.dispose()
-    this.desert.dispose()
-    this.frozen.dispose()
+    this.desert?.dispose()
+    this.frozen?.dispose()
+  }
+
+  private ensureDesert(): EnvPack {
+    if (!this.desert) {
+      this.desert = createDesertEnv(this.materials, this.quality)
+      this.desert.root.visible = false
+      this.root.add(this.desert.root)
+    }
+    return this.desert
+  }
+
+  private ensureFrozen(): EnvPack {
+    if (!this.frozen) {
+      this.frozen = createFrozenEnv(this.materials, this.quality)
+      this.frozen.root.visible = false
+      this.root.add(this.frozen.root)
+    }
+    return this.frozen
   }
 }

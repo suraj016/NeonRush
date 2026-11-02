@@ -14,6 +14,11 @@ function role(mesh: THREE.Object3D, name: string): void {
   mesh.userData.role = name
 }
 
+function freeze(mesh: THREE.Object3D): void {
+  mesh.matrixAutoUpdate = false
+  mesh.updateMatrix()
+}
+
 export class TrackManager {
   readonly root = new THREE.Group()
   readonly segments: TrackSegment[] = []
@@ -118,6 +123,10 @@ export class TrackManager {
         role(neon, 'neon')
         group.add(postL, postR, beam, neon)
       }
+
+      group.traverse((obj) => {
+        if (obj !== group) freeze(obj)
+      })
 
       const content = new THREE.Group()
       group.add(content)

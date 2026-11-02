@@ -62,8 +62,8 @@ export class InputManager {
     window.addEventListener('pointerup', this.onPointerUp)
     window.addEventListener('pointercancel', this.onPointerCancel)
     element.addEventListener('contextmenu', this.onContext)
-    element.addEventListener('touchstart', this.onTouchBlock, { passive: false })
-    element.addEventListener('touchmove', this.onTouchBlock, { passive: false })
+    window.addEventListener('touchstart', this.onTouchBlock, { passive: false })
+    window.addEventListener('touchmove', this.onTouchBlock, { passive: false })
   }
 
   dispose(): void {
@@ -77,8 +77,8 @@ export class InputManager {
     window.removeEventListener('pointerup', this.onPointerUp)
     window.removeEventListener('pointercancel', this.onPointerCancel)
     this.element.removeEventListener('contextmenu', this.onContext)
-    this.element.removeEventListener('touchstart', this.onTouchBlock)
-    this.element.removeEventListener('touchmove', this.onTouchBlock)
+    window.removeEventListener('touchstart', this.onTouchBlock)
+    window.removeEventListener('touchmove', this.onTouchBlock)
     this.pointers.clear()
   }
 
@@ -149,7 +149,6 @@ export class InputManager {
     const target = event.target as HTMLElement | null
     if (target?.closest('button, a, input, label, [role="dialog"], .boost-hold-btn')) return
     if (!this.handlers.isGameplayActive()) return
-    if (event.isPrimary === false) return
     try {
       this.element.setPointerCapture(event.pointerId)
     } catch {

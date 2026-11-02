@@ -1,8 +1,4 @@
 import * as THREE from 'three'
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { BOOST, POWERUP } from './config.ts'
 import { combinedSpeedMultiplier, rechargeBoost, tickBoostEnergy } from './boost.ts'
@@ -93,8 +89,6 @@ export class GameEngine {
   private key!: THREE.DirectionalLight
   private fill!: THREE.DirectionalLight
   private rim!: THREE.DirectionalLight
-  private composer: EffectComposer | null = null
-  private bloomPass: UnrealBloomPass | null = null
   private pmrem: THREE.PMREMGenerator | null = null
   private envMap: THREE.Texture | null = null
   private frames = 0
@@ -156,7 +150,7 @@ export class GameEngine {
     this.renderer = renderer
 
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 280)
+    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, this.mobile ? 170 : 240)
     this.camera.position.set(0, 3.35, 8.1)
 
     this.materials = createMaterials()
@@ -207,7 +201,6 @@ export class GameEngine {
     window.removeEventListener('resize', this.onResize)
     window.visualViewport?.removeEventListener('resize', this.onResize)
     document.removeEventListener('visibilitychange', this.onVisibility)
-    this.disposeComposer()
     this.input.dispose()
     this.audio.dispose()
     this.fx.dispose()
@@ -402,7 +395,6 @@ export class GameEngine {
 
     this.spawner.update(dt, true, this.liteFx)
     this.fx.update(dt)
-    this.track.update(dt)
     this.world.update(dt, moved, this.distance, true)
     this.resolvePickups(dt)
     this.resolveHazards()
@@ -612,8 +604,10 @@ export class GameEngine {
     this.camY = damp(this.camY, 3.35 + this.player.y * 0.18, follow, dt)
     const sx = this.shake ? (Math.random() - 0.5) * this.shake : 0
     const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0
-    this.camera.position.set(this.camX + sx, this.camY + sy, this.camera.aspect < 0.75 ? 9.1 : 8.15)
-    this.camera.lookAt(this.player.x * 0.32, 1.55 + this.player.y * 0.1, -12)
+    const portrait = this.camera.aspect < 0.75
+    const camZ = this.mobile ? (portrait ? 9.8 : 8.7) : portrait ? 9.1 : 8.15
+    this.camera.position.set(this.camX + sx, this.camY + sy, camZ)
+    this.camera.lookAt(this.player.x * 0.28, 1.35 + this.player.y * 0.08, this.mobile ? -16 : -12)
     if (!this.settings.reducedMotion && !menu) {
       const targetFov = this.baseFov + this.fovPulse
       const nextFov = damp(this.camera.fov, targetFov, 8, dt)
@@ -713,6 +707,14 @@ export class GameEngine {
 
   private tutorialHint(): string | null {
     if (!this.tutorialActive || this.state !== EngineStates.Playing) return null
+    if (this.mobile) {
+      if (this.duration < 4) return 'Swipe left or right to change lanes'
+      if (this.duration < 8) return 'Swipe up to jump'
+      if (this.duration < 12) return 'Swipe down to slide under gates'
+      if (this.duration < 16) return 'Hold Boost with one thumb · swipe with the other'
+      if (this.duration < 20) return 'Chain orbs and near-misses for Style Combo'
+      return null
+    }
     if (this.duration < 4) return 'A / D or swipe to change lanes'
     if (this.duration < 8) return 'W or swipe up to jump'
     if (this.duration < 12) return 'S or swipe down to slide'
@@ -854,27 +856,6 @@ export class GameEngine {
     this.scene.environmentIntensity = rich ? (this.mapId === 'emerald' ? 0.42 : 0.16) : 0
     this.fill.visible = rich
     this.rim.visible = rich
-    this.setupComposer(false)
-  }
-
-  private disposeComposer(): void {
-    this.composer?.dispose()
-    this.composer = null
-    this.bloomPass = null
-  }
-
-  private setupComposer(enabled: boolean): void {
-    this.disposeComposer()
-    if (!enabled) return
-    const width = Math.max(1, this.canvas.clientWidth || 1280)
-    const height = Math.max(1, this.canvas.clientHeight || 720)
-    const composer = new EffectComposer(this.renderer)
-    composer.addPass(new RenderPass(this.scene, this.camera))
-    const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.14, 0.22, 0.92)
-    composer.addPass(bloom)
-    composer.addPass(new OutputPass())
-    this.composer = composer
-    this.bloomPass = bloom
   }
 
   private sampleFps(dt: number): void {
@@ -899,8 +880,7 @@ export class GameEngine {
   }
 
   private render(): void {
-    if (this.composer) this.composer.render()
-    else this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, this.camera)
   }
 
   private resize(): void {
@@ -908,10 +888,8 @@ export class GameEngine {
     const width = Math.max(1, this.canvas.clientWidth || view?.width || window.innerWidth)
     const height = Math.max(1, this.canvas.clientHeight || view?.height || window.innerHeight)
     this.renderer.setSize(width, height, false)
-    this.composer?.setSize(width, height)
-    this.bloomPass?.resolution.set(width, height)
     this.camera.aspect = width / height
-    this.baseFov = this.camera.aspect < 0.7 ? 68 : this.camera.aspect < 1 ? 62 : 56
+    this.baseFov = this.camera.aspect < 0.7 ? (this.mobile ? 64 : 68) : this.camera.aspect < 1 ? 62 : 56
     this.camera.fov = this.baseFov + this.fovPulse
     this.camera.updateProjectionMatrix()
   }
@@ -931,9 +909,9 @@ export class GameEngine {
     return Math.min(dpr, cap)
   }
 
-  private worldQuality(quality: Quality): Quality {
-    if (this.mobile) return quality === 'low' ? 'low' : 'medium'
-    return quality
+  private worldQuality(_quality: Quality): Quality {
+    if (this.mobile) return 'low'
+    return _quality
   }
 
   private canShake(): boolean {
@@ -942,8 +920,9 @@ export class GameEngine {
 
   private detectMobile(): boolean {
     const coarse = window.matchMedia('(pointer: coarse)').matches
-    const narrow = window.innerWidth < 820
+    const noHover = window.matchMedia('(hover: none)').matches
+    const narrow = Math.min(window.innerWidth, window.innerHeight) < 820
     const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
-    return coarse || narrow || (memory !== undefined && memory <= 4)
+    return coarse || noHover || narrow || (memory !== undefined && memory <= 4)
   }
 }
