@@ -142,13 +142,30 @@ export function createMixamoAvatar(fbx: THREE.Group): MixamoAvatar {
 async function loadMixamoTemplate(url: string): Promise<THREE.Group> {
   beginMixamoPrefetch(url)
   const buffer = await bufferCache.get(url)!
-  await yieldFrames(2)
+  await yieldFrames(1)
   const group = new FBXLoader().parse(buffer, resourcePath(url))
-  await waitForTextures(group)
-  await optimizeMixamoTemplateAsync(group)
   cacheFit(group)
   cacheClipActions(group)
+  prepareMixamoMeshesForDisplay(group)
+  void finishMixamoTemplateAsync(group)
   return group
+}
+
+/** Show the skinned model immediately; heavy material work continues in the background. */
+function prepareMixamoMeshesForDisplay(root: THREE.Object3D): void {
+  root.traverse((child) => {
+    if (/eyelash/i.test(child.name)) child.visible = false
+    if (!(child instanceof THREE.SkinnedMesh)) return
+    child.frustumCulled = false
+    child.geometry.computeBoundingSphere()
+    child.castShadow = false
+    child.receiveShadow = false
+  })
+}
+
+async function finishMixamoTemplateAsync(root: THREE.Group): Promise<void> {
+  await waitForTextures(root)
+  await optimizeMixamoTemplateAsync(root)
 }
 
 function resourcePath(url: string): string {

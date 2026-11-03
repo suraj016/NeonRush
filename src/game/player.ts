@@ -46,7 +46,7 @@ export class Player {
     this.root = new THREE.Group()
     this.runnerMats = createRunnerMats()
     this.rig = buildRunner(this.runnerMats)
-    this.rig.body.visible = false
+    this.rig.body.visible = true
     this.root.add(this.rig.body)
 
     this.shieldMesh = new THREE.Mesh(
@@ -176,9 +176,13 @@ export class Player {
     this.root.position.y = this.y
     this.root.position.z = 0
 
+    if (this.mixamo) {
+      if (animate) this.updateMixamo(dt, speed, running)
+      else this.mixamo.update(dt)
+      return
+    }
     if (!animate) return
-    if (this.mixamo) this.updateMixamo(dt, speed, running)
-    else if (this.rig.body.visible) {
+    if (this.rig.body.visible) {
       if (running && !this.crashed) this.animateRun(dt, speed)
       else this.animateIdle(dt)
     }
@@ -199,11 +203,7 @@ export class Player {
   }
 
   private scheduleMixamo(): void {
-    const start = () => {
-      if (this.disposed) return
-      void this.mountMixamo()
-    }
-    requestAnimationFrame(() => requestAnimationFrame(start))
+    void this.mountMixamo()
   }
 
   private async mountMixamo(): Promise<void> {
@@ -220,6 +220,8 @@ export class Player {
       avatar.applySkin(this.skinId)
       avatar.reset()
       avatar.holdStill()
+      avatar.pose(0, 0, 0, 1)
+      avatar.update(0)
       ;(
         window as unknown as {
           __neonMixamo?: {
