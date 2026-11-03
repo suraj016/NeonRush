@@ -1,11 +1,20 @@
 import * as THREE from 'three'
 import { LANES, PLAYER, SKINS } from './config.ts'
 import type { MaterialSet } from './materials.ts'
-import { describeMixamoMaterials, loadMixamoAvatar, type MixamoAnimState, type MixamoAvatar } from './mixamoCharacter.ts'
+import {
+  beginMixamoPrefetch,
+  describeMixamoMaterials,
+  loadMixamoAvatar,
+  releaseMixamoAvatarCache,
+  type MixamoAnimState,
+  type MixamoAvatar,
+} from './mixamoCharacter.ts'
 import { buildRunner, createRunnerMats, type RunnerMats, type RunnerRig } from './runnerModel.ts'
 import type { Lane, SkinId } from './types.ts'
 import { clamp, damp } from '../utils/math.ts'
 import characterUrl from '../assets/models/Characternew.fbx?url'
+
+beginMixamoPrefetch(characterUrl)
 
 export class Player {
   readonly root: THREE.Group
@@ -37,6 +46,7 @@ export class Player {
     this.root = new THREE.Group()
     this.runnerMats = createRunnerMats()
     this.rig = buildRunner(this.runnerMats)
+    this.rig.body.visible = false
     this.root.add(this.rig.body)
 
     this.shieldMesh = new THREE.Mesh(
@@ -62,7 +72,7 @@ export class Player {
 
     this.root.position.set(0, 0, 0)
     this.applySkin('pulse')
-    void this.mountMixamo()
+    this.scheduleMixamo()
   }
 
   applySkin(id: SkinId): void {
@@ -168,8 +178,10 @@ export class Player {
 
     if (!animate) return
     if (this.mixamo) this.updateMixamo(dt, speed, running)
-    else if (running && !this.crashed) this.animateRun(dt, speed)
-    else this.animateIdle(dt)
+    else if (this.rig.body.visible) {
+      if (running && !this.crashed) this.animateRun(dt, speed)
+      else this.animateIdle(dt)
+    }
   }
 
   dispose(): void {
@@ -177,12 +189,21 @@ export class Player {
     this.loadToken += 1
     this.mixamo?.dispose()
     this.mixamo = null
+    releaseMixamoAvatarCache()
     this.rig.body.removeFromParent()
     this.shieldMesh.geometry.dispose()
     ;(this.shieldMesh.material as THREE.Material).dispose()
     this.trail[0]?.geometry.dispose()
     this.trailMat.dispose()
     for (const material of Object.values(this.runnerMats)) material.dispose()
+  }
+
+  private scheduleMixamo(): void {
+    const start = () => {
+      if (this.disposed) return
+      void this.mountMixamo()
+    }
+    requestAnimationFrame(() => requestAnimationFrame(start))
   }
 
   private async mountMixamo(): Promise<void> {
@@ -195,7 +216,7 @@ export class Player {
       }
       this.rig.body.visible = false
       this.mixamo = avatar
-      this.root.add(avatar.root)
+      if (!avatar.root.parent) this.root.add(avatar.root)
       avatar.applySkin(this.skinId)
       avatar.reset()
       avatar.holdStill()
@@ -216,6 +237,7 @@ export class Player {
       }
     } catch (error) {
       console.warn('Mixamo character failed to load; keeping built-in runner.', error)
+      if (!this.disposed && token === this.loadToken) this.rig.body.visible = true
     }
   }
 

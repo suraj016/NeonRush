@@ -37,6 +37,8 @@ describe('mixamo clip mapping', () => {
     const fit = computeFit(180, 0, 1.68)
     expect(fit.scale).toBeCloseTo(1.68 / 180)
     expect(fit.lift).toBeCloseTo(0)
+    expect(fit.centerX).toBe(0)
+    expect(fit.centerZ).toBe(0)
     expect(computeFit(180, -2, 1.68).lift).toBeCloseTo(2 * (1.68 / 180))
   })
 

@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
-import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import type { SkinId } from './types.ts'
 import { damp } from '../utils/math.ts'
 
@@ -25,6 +24,8 @@ const CLIP_HINTS: Record<MixamoAnimState, RegExp> = {
 export type MixamoFit = {
   scale: number
   lift: number
+  centerX: number
+  centerZ: number
 }
 
 export type MixamoAvatar = {
@@ -42,7 +43,10 @@ export type MixamoAvatar = {
   update(dt: number): void
 }
 
-const fbxTemplates = new Map<string, Promise<THREE.Group>>()
+const bufferCache = new Map<string, Promise<ArrayBuffer>>()
+const templateCache = new Map<string, Promise<THREE.Group>>()
+let cachedAvatar: MixamoAvatar | null = null
+let avatarLoad: Promise<MixamoAvatar> | null = null
 
 export function classifyClipName(name: string): MixamoAnimState | 'generic' {
   for (const state of MIXAMO_ANIM_STATES) {
@@ -73,7 +77,7 @@ export function inferGenericState(clip: THREE.AnimationClip): MixamoAnimState | 
 export function computeFit(height: number, minY: number, target = TARGET_HEIGHT): MixamoFit {
   const scale = height > 0 ? target / height : 1
   const lift = Math.abs(minY) < 1e-12 ? 0 : -minY * scale
-  return { scale, lift }
+  return { scale, lift, centerX: 0, centerZ: 0 }
 }
 
 export function makeInPlace(clip: THREE.AnimationClip): THREE.AnimationClip {
@@ -92,23 +96,98 @@ export function makeInPlace(clip: THREE.AnimationClip): THREE.AnimationClip {
   return next
 }
 
-export async function loadMixamoAvatar(url: string): Promise<MixamoAvatar> {
-  let pending = fbxTemplates.get(url)
+/** Start downloading the FBX bytes without blocking the main thread. */
+export function beginMixamoPrefetch(url: string): void {
+  if (bufferCache.has(url)) return
+  bufferCache.set(
+    url,
+    fetch(url).then((response) => {
+      if (!response.ok) throw new Error(`Mixamo FBX fetch failed (${response.status})`)
+      return response.arrayBuffer()
+    }),
+  )
+}
+
+export function preloadMixamoAvatar(url: string): Promise<THREE.Group> {
+  let pending = templateCache.get(url)
   if (!pending) {
-    pending = new FBXLoader().loadAsync(url).then(async (group) => {
-      await waitForTextures(group)
-      return group
-    })
-    fbxTemplates.set(url, pending)
+    pending = loadMixamoTemplate(url)
+    templateCache.set(url, pending)
   }
-  const template = await pending
-  const fbx = cloneSkinned(template) as THREE.Group
-  fbx.animations = template.animations
-  return createMixamoAvatar(fbx)
+  return pending
+}
+
+export async function loadMixamoAvatar(url: string): Promise<MixamoAvatar> {
+  if (cachedAvatar) return cachedAvatar
+  if (!avatarLoad) {
+    avatarLoad = preloadMixamoAvatar(url).then((group) => {
+      cachedAvatar = createMixamoAvatar(group)
+      return cachedAvatar
+    })
+  }
+  return avatarLoad
+}
+
+export function releaseMixamoAvatarCache(): void {
+  if (cachedAvatar) destroyMixamoAssets(cachedAvatar)
+  cachedAvatar = null
+  avatarLoad = null
+  templateCache.clear()
 }
 
 export function createMixamoAvatar(fbx: THREE.Group): MixamoAvatar {
   return new MixamoAvatarImpl(fbx)
+}
+
+async function loadMixamoTemplate(url: string): Promise<THREE.Group> {
+  beginMixamoPrefetch(url)
+  const buffer = await bufferCache.get(url)!
+  await yieldFrames(2)
+  const group = new FBXLoader().parse(buffer, resourcePath(url))
+  await waitForTextures(group)
+  await optimizeMixamoTemplateAsync(group)
+  cacheFit(group)
+  cacheClipActions(group)
+  return group
+}
+
+function resourcePath(url: string): string {
+  const cut = url.lastIndexOf('/')
+  return cut >= 0 ? url.slice(0, cut + 1) : './'
+}
+
+function yieldFrames(count: number): Promise<void> {
+  return new Promise((resolve) => {
+    let left = count
+    const step = () => {
+      left -= 1
+      if (left <= 0) resolve()
+      else requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  })
+}
+
+function cacheFit(fbx: THREE.Group): void {
+  fbx.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(fbx)
+  const size = box.getSize(new THREE.Vector3())
+  const fit = computeFit(size.y, box.min.y)
+  fit.centerX = (box.min.x + box.max.x) * 0.5
+  fit.centerZ = (box.min.z + box.max.z) * 0.5
+  fbx.userData.neonFit = fit
+}
+
+function cacheClipActions(fbx: THREE.Group): void {
+  const clips = new Map<MixamoAnimState, THREE.AnimationClip>()
+  for (const clip of fbx.animations) {
+    if (clip.duration <= 0 || clip.tracks.length === 0 || !clipHasMotion(clip)) continue
+    const named = classifyClipName(clip.name)
+    const state = named === 'generic' ? inferGenericState(clip) : named
+    if (!state || clips.has(state)) continue
+    clips.set(state, makeInPlace(clip))
+  }
+  fbx.userData.neonClips = clips
 }
 
 class MixamoAvatarImpl implements MixamoAvatar {
@@ -138,15 +217,14 @@ class MixamoAvatarImpl implements MixamoAvatar {
     this.facing = new THREE.Group()
     this.root = new THREE.Group()
     this.root.name = 'mixamo-avatar'
-    this.prepareMeshes(fbx)
-    this.fitToRunner(fbx)
+    applyCachedFit(fbx)
     this.facing.rotation.y = FACE_DOWN_TRACK
     this.facing.add(fbx)
     this.root.add(this.facing)
 
     this.mixer = new THREE.AnimationMixer(fbx)
     this.clipNames = fbx.animations.map((clip) => clip.name)
-    this.bindClips(fbx.animations)
+    this.bindClips(fbx)
     this.available = MIXAMO_ANIM_STATES.filter((state) => this.actions.has(state))
     this.missing = MIXAMO_ANIM_STATES.filter((state) => !this.actions.has(state))
   }
@@ -177,9 +255,6 @@ class MixamoAvatarImpl implements MixamoAvatar {
     this.disposed = true
     this.mixer.stopAllAction()
     this.mixer.uncacheRoot(this.model)
-    this.model.traverse((child) => {
-      if (child instanceof THREE.SkinnedMesh) child.skeleton.dispose()
-    })
     this.root.removeFromParent()
   }
 
@@ -251,61 +326,141 @@ class MixamoAvatarImpl implements MixamoAvatar {
     this.root.rotation.x = this.pitch
     this.root.rotation.y = this.yaw
     this.root.position.y = this.sink
-    this.root.scale.set(1, 1, 1)
     this.mixer.update(dt)
   }
 
-  private fitToRunner(fbx: THREE.Group): void {
-    fbx.updateMatrixWorld(true)
-    const box = new THREE.Box3().setFromObject(fbx)
-    const size = box.getSize(new THREE.Vector3())
-    const fit = computeFit(size.y, box.min.y)
-    fbx.scale.setScalar(fit.scale)
-    fbx.position.set(
-      -((box.min.x + box.max.x) * 0.5) * fit.scale,
-      fit.lift,
-      -((box.min.z + box.max.z) * 0.5) * fit.scale,
-    )
-  }
-
-  private prepareMeshes(fbx: THREE.Group): void {
-    fbx.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return
-      child.castShadow = true
-      child.receiveShadow = true
-      if (child instanceof THREE.SkinnedMesh) child.frustumCulled = false
-      const materials = Array.isArray(child.material) ? child.material : [child.material]
-      for (const material of materials) preserveMixamoMaterial(material)
-    })
-  }
-
-  private bindClips(clips: THREE.AnimationClip[]): void {
-    for (const clip of clips) {
+  private bindClips(fbx: THREE.Group): void {
+    const cached = fbx.userData.neonClips as Map<MixamoAnimState, THREE.AnimationClip> | undefined
+    if (cached?.size) {
+      for (const [state, clip] of cached) this.bindClip(state, clip)
+      return
+    }
+    for (const clip of fbx.animations) {
       if (clip.duration <= 0 || clip.tracks.length === 0 || !clipHasMotion(clip)) continue
       const named = classifyClipName(clip.name)
       const state = named === 'generic' ? inferGenericState(clip) : named
       if (!state || this.actions.has(state)) continue
-      const action = this.mixer.clipAction(makeInPlace(clip))
-      action.enabled = true
-      if (state === 'jump' || state === 'fall' || state === 'land') {
-        action.setLoop(THREE.LoopOnce, 1)
-        action.clampWhenFinished = true
-      } else {
-        action.setLoop(THREE.LoopRepeat, Infinity)
-      }
-      this.actions.set(state, action)
+      this.bindClip(state, makeInPlace(clip))
     }
+  }
+
+  private bindClip(state: MixamoAnimState, clip: THREE.AnimationClip): void {
+    const action = this.mixer.clipAction(clip)
+    action.enabled = true
+    if (state === 'jump' || state === 'fall' || state === 'land') {
+      action.setLoop(THREE.LoopOnce, 1)
+      action.clampWhenFinished = true
+    } else {
+      action.setLoop(THREE.LoopRepeat, Infinity)
+    }
+    this.actions.set(state, action)
   }
 }
 
-function preserveMixamoMaterial(material: THREE.Material): void {
-  const maps = ['map', 'emissiveMap', 'specularMap', 'normalMap', 'bumpMap', 'alphaMap'] as const
-  for (const key of maps) {
-    const texture = (material as THREE.MeshPhongMaterial)[key]
-    if (!(texture instanceof THREE.Texture)) continue
-    if (key === 'map' || key === 'emissiveMap') texture.colorSpace = THREE.SRGBColorSpace
-    texture.needsUpdate = true
+function applyCachedFit(fbx: THREE.Group): void {
+  const fit = fbx.userData.neonFit as MixamoFit | undefined
+  if (!fit) return
+  fbx.scale.setScalar(fit.scale)
+  fbx.position.set(-fit.centerX * fit.scale, fit.lift, -fit.centerZ * fit.scale)
+}
+
+function maxTextureSize(): number {
+  if (typeof window === 'undefined') return 768
+  const narrow = Math.min(window.innerWidth, window.innerHeight) < 820
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  return narrow || coarse ? 512 : 768
+}
+
+async function optimizeMixamoTemplateAsync(root: THREE.Object3D): Promise<void> {
+  if (root.userData.neonOptimized) return
+  root.userData.neonOptimized = true
+  const meshes: THREE.Mesh[] = []
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh) meshes.push(child)
+  })
+
+  const kept = new Set<THREE.Texture>()
+  const dropped = new Set<THREE.Texture>()
+  const cap = maxTextureSize()
+
+  for (const child of meshes) {
+    if (/eyelash/i.test(child.name)) child.visible = false
+    const source = Array.isArray(child.material) ? child.material : [child.material]
+    const next = source.map((material) => liteMixamoMaterial(material, child.name, kept, dropped, cap))
+    child.material = Array.isArray(child.material) ? next : next[0]
+    child.castShadow = false
+    child.receiveShadow = false
+    if (child instanceof THREE.SkinnedMesh) {
+      child.frustumCulled = false
+      child.geometry.computeBoundingSphere()
+    }
+    await yieldFrames(1)
   }
+}
+
+function liteMixamoMaterial(
+  source: THREE.Material,
+  meshName: string,
+  kept: Set<THREE.Texture>,
+  dropped: Set<THREE.Texture>,
+  cap: number,
+): THREE.Material {
+  const src = source as THREE.MeshPhongMaterial
+  const map = src.map instanceof THREE.Texture ? src.map : null
+  if (map && !kept.has(map)) {
+    map.colorSpace = THREE.SRGBColorSpace
+    downscaleTexture(map, cap)
+    map.minFilter = THREE.LinearFilter
+    map.magFilter = THREE.LinearFilter
+    map.generateMipmaps = false
+    kept.add(map)
+  }
+  dropUnusedMaps(src, map, dropped, kept)
+  if (source instanceof THREE.MeshLambertMaterial && map) return source
+  const hair = /hair|lash/i.test(meshName) || /hair|lash/i.test(source.name)
+  const lite = new THREE.MeshLambertMaterial({
+    map: map ?? undefined,
+    color: src.color?.clone() ?? new THREE.Color(0xcccccc),
+    transparent: Boolean(src.transparent || hair),
+    opacity: src.opacity ?? 1,
+    alphaTest: hair ? 0.35 : (src.alphaTest ?? 0),
+    side: src.side,
+    depthWrite: !hair,
+  })
+  lite.name = source.name
+  source.dispose()
+  return lite
+}
+
+function dropUnusedMaps(
+  source: THREE.MeshPhongMaterial,
+  keep: THREE.Texture | null,
+  dropped: Set<THREE.Texture>,
+  kept: Set<THREE.Texture>,
+): void {
+  const extras = [source.normalMap, source.bumpMap, source.specularMap, source.emissiveMap, source.aoMap]
+  for (const extra of extras) {
+    if (!(extra instanceof THREE.Texture) || extra === keep || kept.has(extra) || dropped.has(extra)) continue
+    dropped.add(extra)
+    extra.dispose()
+  }
+}
+
+function downscaleTexture(texture: THREE.Texture, maxSize: number): void {
+  const image = texture.image as { width?: number; height?: number } | undefined
+  if (!image?.width || !image.height) return
+  const longest = Math.max(image.width, image.height)
+  if (longest <= maxSize) return
+  if (typeof document === 'undefined') return
+  const scale = maxSize / longest
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.drawImage(image as CanvasImageSource, 0, 0, canvas.width, canvas.height)
+  texture.image = canvas
+  texture.needsUpdate = true
 }
 
 function waitForTextures(root: THREE.Object3D): Promise<void> {
@@ -329,6 +484,17 @@ function waitForTextures(root: THREE.Object3D): Promise<void> {
     }
   })
   return pending.length ? Promise.all(pending).then(() => undefined) : Promise.resolve()
+}
+
+function destroyMixamoAssets(avatar: MixamoAvatar): void {
+  avatar.dispose()
+  avatar.root.traverse((child) => {
+    if (child instanceof THREE.SkinnedMesh) child.skeleton.dispose()
+    if (!(child instanceof THREE.Mesh)) return
+    child.geometry.dispose()
+    const materials = Array.isArray(child.material) ? child.material : [child.material]
+    for (const material of materials) material.dispose()
+  })
 }
 
 export function describeMixamoMaterials(root: THREE.Object3D): { mesh: string; map: boolean; color: string }[] {
