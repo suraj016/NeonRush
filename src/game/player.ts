@@ -1,9 +1,11 @@
 import * as THREE from 'three'
-import { LANES, PLAYER } from './config.ts'
+import { LANES, PLAYER, SKINS } from './config.ts'
 import type { MaterialSet } from './materials.ts'
+import { describeMixamoMaterials, loadMixamoAvatar, type MixamoAnimState, type MixamoAvatar } from './mixamoCharacter.ts'
 import { buildRunner, createRunnerMats, type RunnerMats, type RunnerRig } from './runnerModel.ts'
 import type { Lane, SkinId } from './types.ts'
 import { clamp, damp } from '../utils/math.ts'
+import characterUrl from '../assets/models/Characternew.fbx?url'
 
 export class Player {
   readonly root: THREE.Group
@@ -17,6 +19,7 @@ export class Player {
   crashed = false
   invuln = 0
   justLanded = false
+  private landHold = 0
   private runPhase = 0
   private rig: RunnerRig
   private runnerMats: RunnerMats
@@ -25,6 +28,10 @@ export class Player {
   private trailMat: THREE.MeshBasicMaterial
   private trailBoost = false
   private trailTier = -1
+  private skinId: SkinId = 'pulse'
+  private mixamo: MixamoAvatar | null = null
+  private loadToken = 0
+  private disposed = false
 
   constructor(_materials: MaterialSet) {
     this.root = new THREE.Group()
@@ -52,31 +59,27 @@ export class Player {
       depthWrite: false,
     })
     this.trail = []
-    const streakGeo = new THREE.BoxGeometry(0.08, 0.06, 0.32)
-    for (let i = 0; i < 3; i += 1) {
-      const streak = new THREE.Mesh(streakGeo, this.trailMat)
-      streak.position.set(0, 0.95, 0.42 + i * 0.28)
-      streak.scale.set(1 - i * 0.18, 1 - i * 0.15, 1)
-      this.trail.push(streak)
-      this.root.add(streak)
-    }
 
     this.root.position.set(0, 0, 0)
     this.applySkin('pulse')
+    void this.mountMixamo()
   }
 
-  applySkin(_id: SkinId): void {
+  applySkin(id: SkinId): void {
+    this.skinId = id
+    const skin = SKINS[id]
     this.runnerMats.armor.color.setHex(0x101b35)
     this.runnerMats.armor2.color.setHex(0x17294a)
     this.runnerMats.facet.color.setHex(0x29466f)
     this.runnerMats.shadow.color.setHex(0x09111f)
-    this.runnerMats.cyan.color.setHex(0x00cfff)
-    this.runnerMats.cyan.emissive.setHex(0x00cfff)
+    this.runnerMats.cyan.color.setHex(skin.accent)
+    this.runnerMats.cyan.emissive.setHex(skin.accent)
     this.runnerMats.cyan.emissiveIntensity = 0.95
-    this.runnerMats.visor.color.setHex(0x35e8ff)
-    this.runnerMats.visor.emissive.setHex(0x00cfff)
+    this.runnerMats.visor.color.setHex(skin.visor)
+    this.runnerMats.visor.emissive.setHex(skin.accent)
     this.runnerMats.visor.emissiveIntensity = 1.25
-    this.trailMat.color.setHex(0x00cfff)
+    this.trailMat.color.setHex(skin.accent)
+    this.mixamo?.applySkin(id)
   }
 
   reset(): void {
@@ -90,20 +93,12 @@ export class Player {
     this.crashed = false
     this.invuln = 0
     this.justLanded = false
+    this.landHold = 0
     this.runPhase = 0
     this.root.rotation.set(0, 0, 0)
     this.root.position.set(0, 0, 0)
-    this.rig.body.rotation.set(0, 0, 0)
-    this.rig.body.position.y = 0
-    this.rig.helmet.rotation.set(0, 0, 0)
-    this.rig.leftShoulder.rotation.set(0, 0, 0)
-    this.rig.rightShoulder.rotation.set(0, 0, 0)
-    this.rig.leftElbow.rotation.set(0, 0, 0)
-    this.rig.rightElbow.rotation.set(0, 0, 0)
-    this.rig.leftHip.rotation.set(0, 0, 0)
-    this.rig.rightHip.rotation.set(0, 0, 0)
-    this.rig.leftKnee.rotation.set(0, 0, 0)
-    this.rig.rightKnee.rotation.set(0, 0, 0)
+    this.resetFallbackPose()
+    this.mixamo?.reset()
     this.setTrailStyle(false, 0)
   }
 
@@ -126,6 +121,7 @@ export class Player {
   jump(): boolean {
     if (this.crashed || !this.grounded || this.sliding) return false
     this.grounded = false
+    this.landHold = 0
     this.vy = PLAYER.jumpVelocity
     return true
   }
@@ -154,8 +150,10 @@ export class Player {
         this.vy = 0
         this.grounded = true
         this.justLanded = true
+        this.landHold = 0.18
       }
     }
+    if (this.landHold > 0) this.landHold = Math.max(0, this.landHold - dt)
 
     if (this.sliding) {
       this.slideTimer -= dt
@@ -168,16 +166,106 @@ export class Player {
     this.root.position.y = this.y
     this.root.position.z = 0
 
-    if (!animate) {
-      for (let i = 0; i < this.trail.length; i += 1) this.trail[i].visible = false
-      return
-    }
-    if (running && !this.crashed) this.animateRun(dt, speed)
+    if (!animate) return
+    if (this.mixamo) this.updateMixamo(dt, speed, running)
+    else if (running && !this.crashed) this.animateRun(dt, speed)
     else this.animateIdle(dt)
-    for (let i = 0; i < this.trail.length; i += 1) {
-      this.trail[i].visible = running && !this.crashed
-      this.trail[i].position.y = this.sliding ? 0.42 : 0.95
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.loadToken += 1
+    this.mixamo?.dispose()
+    this.mixamo = null
+    this.rig.body.removeFromParent()
+    this.shieldMesh.geometry.dispose()
+    ;(this.shieldMesh.material as THREE.Material).dispose()
+    this.trail[0]?.geometry.dispose()
+    this.trailMat.dispose()
+    for (const material of Object.values(this.runnerMats)) material.dispose()
+  }
+
+  private async mountMixamo(): Promise<void> {
+    const token = ++this.loadToken
+    try {
+      const avatar = await loadMixamoAvatar(characterUrl)
+      if (this.disposed || token !== this.loadToken) {
+        avatar.dispose()
+        return
+      }
+      this.rig.body.visible = false
+      this.mixamo = avatar
+      this.root.add(avatar.root)
+      avatar.applySkin(this.skinId)
+      avatar.reset()
+      avatar.holdStill()
+      ;(
+        window as unknown as {
+          __neonMixamo?: {
+            clips: string[]
+            available: MixamoAnimState[]
+            missing: MixamoAnimState[]
+            materials: { mesh: string; map: boolean; color: string }[]
+          }
+        }
+      ).__neonMixamo = {
+        clips: avatar.clipNames,
+        available: avatar.available,
+        missing: avatar.missing,
+        materials: describeMixamoMaterials(avatar.root),
+      }
+    } catch (error) {
+      console.warn('Mixamo character failed to load; keeping built-in runner.', error)
     }
+  }
+
+  private updateMixamo(dt: number, speed: number, running: boolean): void {
+    const avatar = this.mixamo
+    if (!avatar) return
+
+    const lean = this.crashed ? 0.22 : clamp((LANES[this.lane] - this.x) * 0.22, -0.2, 0.2)
+    const pitch = this.sliding && !this.crashed ? -0.92 : this.crashed ? 0.32 : 0
+    const sink = this.sliding && !this.crashed ? -0.32 : 0
+    avatar.pose(lean, pitch, sink, 1)
+    const state = this.resolveMixamoState(running, speed)
+    const timeScale = this.mixamoTimeScale(speed, running)
+    if (this.sliding && !this.crashed) {
+      if (!avatar.play('slide', dt, 1)) avatar.holdStill()
+    } else if (!running || this.crashed) {
+      if (!avatar.play(state, dt, 1)) avatar.holdStill()
+    } else if (!avatar.play(state, dt, timeScale)) {
+      avatar.play('run', dt, timeScale)
+    }
+    avatar.update(dt)
+    this.root.position.y = this.y
+  }
+
+  private resolveMixamoState(running: boolean, speed: number): MixamoAnimState {
+    if (this.crashed) return 'idle'
+    if (!this.grounded) return this.vy > 0.4 ? 'jump' : 'fall'
+    if (this.landHold > 0) return 'land'
+    if (this.sliding) return 'slide'
+    if (!running) return 'idle'
+    return speed < 9 ? 'walk' : 'run'
+  }
+
+  private mixamoTimeScale(speed: number, running: boolean): number {
+    if (!running || this.crashed || this.sliding || !this.grounded) return 1
+    return clamp(0.85 + speed * 0.03, 0.85, 1.45)
+  }
+
+  private resetFallbackPose(): void {
+    this.rig.body.rotation.set(0, 0, 0)
+    this.rig.body.position.y = 0
+    this.rig.helmet.rotation.set(0, 0, 0)
+    this.rig.leftShoulder.rotation.set(0, 0, 0)
+    this.rig.rightShoulder.rotation.set(0, 0, 0)
+    this.rig.leftElbow.rotation.set(0, 0, 0)
+    this.rig.rightElbow.rotation.set(0, 0, 0)
+    this.rig.leftHip.rotation.set(0, 0, 0)
+    this.rig.rightHip.rotation.set(0, 0, 0)
+    this.rig.leftKnee.rotation.set(0, 0, 0)
+    this.rig.rightKnee.rotation.set(0, 0, 0)
   }
 
   setShieldVisible(on: boolean): void {

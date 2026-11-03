@@ -207,6 +207,7 @@ export class GameEngine {
     this.spawner.dispose()
     this.track.dispose()
     this.world.dispose()
+    this.player.dispose()
     this.materials.dispose()
     for (const light of this.lights) {
       this.scene.remove(light)
